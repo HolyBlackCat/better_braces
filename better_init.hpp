@@ -25,6 +25,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <initializer_list>
+#include <new> // Need `std::launder`.
 #include <type_traits>
 #include <utility> // At least for `std::swap`.
 
@@ -92,6 +93,10 @@ namespace better_init
 {
     namespace detail
     {
+        struct empty {};
+
+        enum class fwd_mode {copy, forward, move};
+
         template <typename T, typename Iter>
         concept constructible_from_iters = requires
         {
@@ -123,6 +128,17 @@ namespace better_init
             using std::swap; // Enable ADL.
             swap(decltype(a)(a), decltype(b)(b));
         };
+
+        constexpr std::size_t max_size(std::initializer_list<std::size_t> list)
+        {
+            std::size_t ret = 0;
+            for (std::size_t x : list)
+            {
+                if (x > ret)
+                    ret = x;
+            }
+            return ret;
+        }
 
         namespace cmp
         {
@@ -181,6 +197,88 @@ namespace better_init
         template <typename T> static constexpr bool can_nothrow_assign_from_elem = (std::is_nothrow_assignable_v<P &&, T &&> && ...);
 
       private:
+        class Value
+        {
+            friend BETTER_INIT_IDENTIFIER;
+            std::size_t index = std::size_t(-1);
+            [[no_unique_address]] alignas(P...) std::conditional_t<sizeof...(P) == 0, detail::empty, unsigned char[detail::max_size(sizeof(P)...)]> buffer;
+
+            constexpr bool detail_empty() const
+            {
+                return index == std::size_t(-1);
+            }
+
+            constexpr void detail_destroy()
+            {
+                if constexpr (sizeof...(P) > 0)
+                {
+                    if (detail_empty())
+                        return;
+                    std::size_t old_index = index;
+                    index = std::size_t(-1); // Do this first, in case something throws.
+                    constexpr void (*lambdas[])(void *) = {
+                        +[](void *target)
+                        {
+                            using type = std::remove_reference_t<P>;
+                            std::launder(reinterpret_cast<type *>(target)).~type();
+                        }...
+                    };
+                    lambdas[old_index](buffer);
+                }
+            }
+
+            template <detail::fwd_mode Mode>
+            constexpr void detail_create(std::size_t i, void *source)
+            {
+                if constexpr (sizeof...(P) == 0)
+                {
+                    *(volatile int *)nullptr = 0; // Crash.
+                }
+                else
+                {
+                    detail_destroy(); // Weak thread safety.
+                    constexpr void (*lambdas[])(void *, void *) = {
+                        +[](void *target, void *source)
+                        {
+                            // Extra `std::launder` here, in case `source` points to another `Value`.
+                            using type = std::remove_reference_t<P>;
+                            if constexpr (Mode == detail::fwd_mode::forward)
+                                ::new(target) type(std::forward<P>(*std::launder(reinterpret_cast<type *>(source))));
+                            else if constexpr (Mode == detail::fwd_mode::move)
+                                ::new(target) type(std::move(*std::launder(reinterpret_cast<type *>(source))));
+                            else
+                                ::new(target) type(*std::launder(reinterpret_cast<type *>(source)));
+                        }...
+                    };
+                    lambdas[i](source);
+                    index = i; // Do this after successful construction.
+                }
+            }
+
+          public:
+            constexpr Value() noexcept {}
+            constexpr Value(const Value &other) noexcept((std::is_nothrow_copy_constructible_v<std::remove_reference_t<P>> && ...)) requires(std::is_copy_constructible_v<std::remove_reference_t<P>> && ...)
+            {
+                detail_create<detail::fwd_mode::copy>(other.index, other.buffer);
+            }
+            constexpr Value(Value &&other) noexcept((std::is_nothrow_move_constructible_v<std::remove_reference_t<P>> && ...)) requires(std::is_move_constructible_v<std::remove_reference_t<P>> && ...)
+            {
+                detail_create<detail::fwd_mode::move>(other.index, other.buffer);
+            }
+            constexpr Value &operator=(const Value &other) noexcept((std::is_nothrow_copy_assignable_v<std::remove_reference_t<P>> && ...)) requires(std::is_copy_assignable_v<std::remove_reference_t<P>> && ...)
+            {
+                detail_create<detail::fwd_mode::copy>(other.index, other.buffer);
+            }
+            constexpr Value &operator=(Value &&other) noexcept((std::is_nothrow_move_assignable_v<std::remove_reference_t<P>> && ...)) requires(std::is_move_assignable_v<std::remove_reference_t<P>> && ...)
+            {
+                detail_create<detail::fwd_mode::move>(other.index, other.buffer);
+            }
+            constexpr ~Value() noexcept((std::is_nothrow_destructible_v<std::remove_reference_t<P>> && ...))
+            {
+                detail_destroy();
+            }
+        };
+
         class Reference
         {
             friend BETTER_INIT_IDENTIFIER;
@@ -307,8 +405,8 @@ namespace better_init
             // `LegacyForwardIterator` requires us to return an actual reference here.
             constexpr const Reference &operator*() const noexcept {return *ref;}
 
-            // Can't be called using the operator notation, but can be helpful if somebody calls it using `.operator->()` to determine the "pointer type".
-            constexpr Iterator operator->() const noexcept {return *this;}
+            // No `operator->`.
+            // `std::iterator_traits` uses it to determine the `pointer` type, and this causes it to use `void`. Good enough for us?
 
             // Don't want to rely on `<compare>`.
             friend constexpr bool operator==(Iterator a, Iterator b) noexcept
@@ -369,8 +467,7 @@ namespace better_init
         // Could use `std::array`, but want to use less headers.
         // Must store `Reference`s here, because `std::random_access_iterator` requires `operator[]` to return the same type as `operator*`,
         // and `LegacyForwardIterator` requires `operator*` to return an actual reference. If we don't have those here, we don't have anything for the references to point to.
-        struct Empty {};
-        std::conditional_t<sizeof...(P) == 0, Empty, Reference[sizeof...(P)]> elems;
+        [[no_unique_address]] std::conditional_t<sizeof...(P) == 0, detail::empty, Reference[sizeof...(P)]> elems;
 
       public:
         // The element-wise constructor.
