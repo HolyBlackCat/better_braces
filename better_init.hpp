@@ -25,9 +25,9 @@
 #include <cstddef>
 #include <cstdint>
 #include <initializer_list>
-#include <new> // Need `std::launder`.
 #include <type_traits>
 #include <utility> // At least for `std::swap`.
+#include <variant>
 
 // This file is included by this header automatically, if it exists.
 // Put your customizations here.
@@ -66,6 +66,9 @@ namespace better_init
             // What type to cast `T` to before performing comparisons.
             // Must be `T`, possibly with cvref-qualifiers changed.
             using comparable_type = std::remove_reference_t<T> &;
+
+            // The type that gets copied when when you copy a type-erased element out of range. You get a variant of those.
+            using extracted_type = std::remove_cvref_t<T>;
         };
     }
 
@@ -89,13 +92,56 @@ namespace better_init
 #define BETTER_INIT_IDENTIFIER init
 #endif
 
+// Should stop the program.
+#ifndef BETTER_INIT_ABORT
+#ifdef _MSC_VER
+#define BETTER_INIT_ABORT __debugbreak();
+#else
+#define BETTER_INIT_ABORT __builtin_trap();
+#endif
+#endif
+
 namespace better_init
 {
     namespace detail
     {
+        enum class fwd {copy, move, forward};
+
+        template <typename ...P> struct overload : P... {using P::operator()...;};
+        template <typename ...P> overload(P &&...) -> overload<std::decay_t<P>...>;
+
         struct empty {};
 
-        enum class fwd_mode {copy, forward, move};
+        template <typename Tag, typename T>
+        struct tagged_type
+        {
+            using tag = Tag;
+            T value;
+            template <typename U>
+            constexpr tagged_type(U &&) noexcept(std::is_nothrow_constructible_v<T, U &&>) : value(std::forward<T>) {}
+        };
+
+        template <std::size_t N, typename F>
+        void with_constexpr_index(std::size_t i, F &&func)
+        {
+            if constexpr (N == 0)
+            {
+                BETTER_INIT_ABORT
+            }
+            else
+            {
+                [&]<std::size_t ...I>(std::index_sequence<I...>)
+                {
+                    constexpr void (*lambdas[])(F &&) = {
+                        +[](F &&func) -> void
+                        {
+                            std::forward<F>(func)(std::integral_constant<std::size_t, I>{});
+                        }...
+                    };
+                    lambdas[i](std::forward<F>(func));
+                }(std::make_index_sequence<N>{});
+            }
+        }
 
         template <typename T, typename Iter>
         concept constructible_from_iters = requires
@@ -129,31 +175,20 @@ namespace better_init
             swap(decltype(a)(a), decltype(b)(b));
         };
 
-        constexpr std::size_t max_size(std::initializer_list<std::size_t> list)
-        {
-            std::size_t ret = 0;
-            for (std::size_t x : list)
-            {
-                if (x > ret)
-                    ret = x;
-            }
-            return ret;
-        }
-
         namespace cmp
         {
             template <typename T>
             using comparable_type = typename custom::elem_traits<T>::comparable_type;
 
             #define DETAIL_BETTER_INIT_CMP_OPS(X) \
-                X(eq,      ==) \
-                X(neq,     !=) \
-                X(less,    < ) \
-                X(leq,     <=) \
-                X(greater, > ) \
-                X(greq,    >=)
+                X(eq,      ==, true ) \
+                X(neq,     !=, true ) \
+                X(less,    < , false) \
+                X(leq,     <=, false) \
+                X(greater, > , false) \
+                X(greq,    >=, false)
 
-            #define DETAIL_BETTER_INIT_CMP(name_, op_) \
+            #define DETAIL_BETTER_INIT_CMP(name_, op_, is_eq_) \
                 inline constexpr auto name_ = [](auto &&a, auto &&b) \
                 noexcept(noexcept(static_cast<comparable_type<decltype(a)>>(a) op_ static_cast<comparable_type<decltype(b)>>(b))) \
                 -> bool \
@@ -184,207 +219,207 @@ namespace better_init
     template <typename ...P>
     class BETTER_INIT_IDENTIFIER
     {
+        class Value;
+        class Reference;
+
       public:
         // Whether we only have lvalue references in the range, and no rvalue references.
         static constexpr bool lvalues_only = (std::is_lvalue_reference_v<P> && ...);
 
+        // Whether `T` is a special type that should be rejected by our generic templates.
+        template <typename T>
+        static constexpr bool is_special = std::is_same_v<std::remove_cvref_t<T>, Value> || std::is_same_v<std::remove_cvref_t<T>, Reference>;
+
         // Whether this list can be used to initialize a range of `T`s.
-        template <typename T> static constexpr bool can_initialize_elem         = (std::is_constructible_v        <T, P &&> && ...);
-        template <typename T> static constexpr bool can_nothrow_initialize_elem = (std::is_nothrow_constructible_v<T, P &&> && ...);
+        template <typename T> static constexpr bool can_initialize_with_elem         = !is_special<T> && (std::is_constructible_v        <T, P &&> && ...);
+        template <typename T> static constexpr bool can_nothrow_initialize_with_elem = !is_special<T> && (std::is_nothrow_constructible_v<T, P &&> && ...);
 
         // Whether elements of this list can be assigned from `T`s.
-        template <typename T> static constexpr bool can_assign_from_elem         = (std::is_assignable_v        <P &&, T &&> && ...);
-        template <typename T> static constexpr bool can_nothrow_assign_from_elem = (std::is_nothrow_assignable_v<P &&, T &&> && ...);
+        template <typename T> static constexpr bool can_assign_elem_from         = !is_special<T> && (std::is_assignable_v        <P &&, T &&> && ...);
+        template <typename T> static constexpr bool can_nothrow_assign_elem_from = !is_special<T> && (std::is_nothrow_assignable_v<P &&, T &&> && ...);
+
+        // Whether elements can be mutually copy/move constructed/assigned.
+        static constexpr bool can_copy_assign_elems         = (can_assign_elem_from        <const std::remove_reference_t<P> &> && ...);
+        static constexpr bool can_nothrow_copy_assign_elems = (can_nothrow_assign_elem_from<const std::remove_reference_t<P> &> && ...);
+        static constexpr bool can_move_assign_elems         = (can_assign_elem_from        <std::remove_reference_t<P> &&> && ...);
+        static constexpr bool can_nothrow_move_assign_elems = (can_nothrow_assign_elem_from<std::remove_reference_t<P> &&> && ...);
+
+        // Whether you can extract elements from range into iterator's `::value_type` (a wrapper for a variant).
+        static constexpr bool can_copy_extract_elems         = (std::is_constructible_v        <typename custom::elem_traits<P>::extracted_type, const std::remove_reference_t<P> &> && ...);
+        static constexpr bool can_nothrow_copy_extract_elems = (std::is_nothrow_constructible_v<typename custom::elem_traits<P>::extracted_type, const std::remove_reference_t<P> &> && ...);
+        static constexpr bool can_move_extract_elems         = (std::is_constructible_v        <typename custom::elem_traits<P>::extracted_type, std::remove_reference_t<P> &&> && ...);
+        static constexpr bool can_nothrow_move_extract_elems = (std::is_nothrow_constructible_v<typename custom::elem_traits<P>::extracted_type, std::remove_reference_t<P> &&> && ...);
+
+        // Whether you can re-insert elements from iterator's `::value_type`.
+        static constexpr bool can_copy_insert_elems         = (std::is_assignable_v        <P &, const std::remove_reference_t<typename custom::elem_traits<P>::extracted_type> &> && ...);
+        static constexpr bool can_nothrow_copy_insert_elems = (std::is_nothrow_assignable_v<P &, const std::remove_reference_t<typename custom::elem_traits<P>::extracted_type> &> && ...);
+        static constexpr bool can_move_insert_elems         = (std::is_assignable_v        <P &, std::remove_reference_t<typename custom::elem_traits<P>::extracted_type> &&> && ...);
+        static constexpr bool can_nothrow_move_insert_elems = (std::is_nothrow_assignable_v<P &, std::remove_reference_t<typename custom::elem_traits<P>::extracted_type> &&> && ...);
 
       private:
         class Value
         {
             friend BETTER_INIT_IDENTIFIER;
-            std::size_t index = std::size_t(-1);
-            [[no_unique_address]] alignas(P...) std::conditional_t<sizeof...(P) == 0, detail::empty, unsigned char[detail::max_size(sizeof(P)...)]> buffer;
-
-            constexpr bool detail_empty() const
-            {
-                return index == std::size_t(-1);
-            }
-
-            constexpr void detail_destroy()
-            {
-                if constexpr (sizeof...(P) > 0)
-                {
-                    if (detail_empty())
-                        return;
-                    std::size_t old_index = index;
-                    index = std::size_t(-1); // Do this first, in case something throws.
-                    constexpr void (*lambdas[])(void *) = {
-                        +[](void *target)
-                        {
-                            using type = std::remove_reference_t<P>;
-                            std::launder(reinterpret_cast<type *>(target)).~type();
-                        }...
-                    };
-                    lambdas[old_index](buffer);
-                }
-            }
-
-            template <detail::fwd_mode Mode>
-            constexpr void detail_create(std::size_t i, void *source)
-            {
-                if constexpr (sizeof...(P) == 0)
-                {
-                    *(volatile int *)nullptr = 0; // Crash.
-                }
-                else
-                {
-                    detail_destroy(); // Weak thread safety.
-                    constexpr void (*lambdas[])(void *, void *) = {
-                        +[](void *target, void *source)
-                        {
-                            // Extra `std::launder` here, in case `source` points to another `Value`.
-                            using type = std::remove_reference_t<P>;
-                            if constexpr (Mode == detail::fwd_mode::forward)
-                                ::new(target) type(std::forward<P>(*std::launder(reinterpret_cast<type *>(source))));
-                            else if constexpr (Mode == detail::fwd_mode::move)
-                                ::new(target) type(std::move(*std::launder(reinterpret_cast<type *>(source))));
-                            else
-                                ::new(target) type(*std::launder(reinterpret_cast<type *>(source)));
-                        }...
-                    };
-                    lambdas[i](source);
-                    index = i; // Do this after successful construction.
-                }
-            }
-
-          public:
-            constexpr Value() noexcept {}
-            constexpr Value(const Value &other) noexcept((std::is_nothrow_copy_constructible_v<std::remove_reference_t<P>> && ...)) requires(std::is_copy_constructible_v<std::remove_reference_t<P>> && ...)
-            {
-                detail_create<detail::fwd_mode::copy>(other.index, other.buffer);
-            }
-            constexpr Value(Value &&other) noexcept((std::is_nothrow_move_constructible_v<std::remove_reference_t<P>> && ...)) requires(std::is_move_constructible_v<std::remove_reference_t<P>> && ...)
-            {
-                detail_create<detail::fwd_mode::move>(other.index, other.buffer);
-            }
-            constexpr Value &operator=(const Value &other) noexcept((std::is_nothrow_copy_assignable_v<std::remove_reference_t<P>> && ...)) requires(std::is_copy_assignable_v<std::remove_reference_t<P>> && ...)
-            {
-                detail_create<detail::fwd_mode::copy>(other.index, other.buffer);
-            }
-            constexpr Value &operator=(Value &&other) noexcept((std::is_nothrow_move_assignable_v<std::remove_reference_t<P>> && ...)) requires(std::is_move_assignable_v<std::remove_reference_t<P>> && ...)
-            {
-                detail_create<detail::fwd_mode::move>(other.index, other.buffer);
-            }
-            constexpr ~Value() noexcept((std::is_nothrow_destructible_v<std::remove_reference_t<P>> && ...))
-            {
-                detail_destroy();
-            }
+            std::variant<std::monostate, typename custom::elem_traits<P>::extracted_type...> var;
         };
 
         class Reference
         {
             friend BETTER_INIT_IDENTIFIER;
-            void *target = nullptr;
-            std::size_t index = 0;
 
-            template <typename T>
-            constexpr T to() const
+            std::variant<std::monostate, detail::tagged_type<P, std::remove_reference_t<P> *>...> var;
+
+            template <detail::fwd Mode, typename T>
+            constexpr T detail_to() const
             {
-                if constexpr (sizeof...(P) == 0)
-                {
-                    return *(volatile T *)nullptr;
-                }
-                else
-                {
-                    constexpr T (*lambdas[])(void *) = {
-                        +[](void *ptr) -> T
-                        {
-                            // Don't want to include `<utility>` for `std::forward`.
-                            return T(static_cast<P &&>(*reinterpret_cast<std::remove_reference_t<P> *>(ptr)));
-                        }...
-                    };
-                    return lambdas[index](target);
-                }
+                return std::visit(detail::overload{
+                    [](std::monostate) -> T
+                    {
+                        return *(T *)nullptr;
+                    },
+                    []<typename U, typename V>(detail::tagged_type<U, V *> ptr) -> T
+                    {
+                        if constexpr (Mode == detail::fwd::copy)
+                            return T(*ptr.value);
+                        else if constexpr (Mode == detail::fwd::move)
+                            return T(std::move(*ptr.value));
+                        else
+                            return T(std::forward<U>(*ptr.value));
+                    },
+                }, var);
             }
 
-            template <typename R, auto F>
-            constexpr R double_dispatch(Reference other) const
+            template <auto F, bool HandleNulls>
+            constexpr bool detail_compare(const Reference &other) const
             {
-                if constexpr (sizeof...(P) == 0)
-                {
-                    return *(volatile R *)nullptr;
-                }
-                else if constexpr (detail::all_types_same<P...>)
-                {
-                    using type = detail::first_type<P...>;
-                    return F(to<type>(), other.to<type>());
-                }
-                else
-                {
-                    using func = R(void *, void *);
-                    constexpr func *(*lambdas[])(std::size_t) = {
-                        +[](std::size_t i)
-                        {
-                            using lhs = P &&;
-                            constexpr func *sub_lambdas[] = {
-                                +[](void *a, void *b) -> bool
-                                {
-                                    using rhs = P &&;
-                                    return F(
-                                        static_cast<lhs>(*reinterpret_cast<std::remove_reference_t<lhs> *>(a)),
-                                        static_cast<rhs>(*reinterpret_cast<std::remove_reference_t<rhs> *>(b))
-                                    );
-                                }...
-                            };
-                            return sub_lambdas[i];
-                        }...
-                    };
-                    return lambdas[index](other.index)(target, other.target);
-                }
+                return std::visit(detail::overload{
+                    []<typename A, typename B>(A, B) -> bool requires std::is_same_v<A, std::monostate> || std::is_same_v<A, std::monostate>
+                    {
+                        if constexpr (HandleNulls)
+                            return F(!std::is_same_v<A, std::monostate>, !std::is_same_v<B, std::monostate>);
+                        else
+                            BETTER_INIT_ABORT
+                    },
+                    []<typename UA, typename VA, typename UB, typename VB>(detail::tagged_type<UA, VA *> a, detail::tagged_type<UB, VB *> b) -> bool
+                    {
+                        return F(
+                            static_cast<typename custom::elem_traits<UA>::comparable_type>(*a.value),
+                            static_cast<typename custom::elem_traits<UB>::comparable_type>(*b.value)
+                        );
+                    },
+                }, var, other.var);
             }
 
+            constexpr Reference() {}
           public:
-            template <typename T> requires can_initialize_elem<T>
-            constexpr operator T() const noexcept(can_nothrow_initialize_elem<T>)
+            // All references are owned by the list and can't be copied out.
+            // That's because we're forced to return true references from dereferencing iterators, so we have to store them in one place.
+            // See the iterator class for more details.
+            Reference(const Reference &) = delete;
+            Reference(Reference &&) = delete;
+
+            // Assignment between references assigns the pointed elements.
+            constexpr Reference &operator=(const Reference &other) const noexcept(can_nothrow_copy_assign_elems) requires can_copy_assign_elems
             {
-                return to<T>();
+                return std::visit(detail::overload{
+                    []<typename A, typename B>(A, B) -> bool requires std::is_same_v<A, std::monostate> || std::is_same_v<A, std::monostate>
+                    {
+                        BETTER_INIT_ABORT
+                    },
+                    [](auto a, auto b) -> bool
+                    {
+                        *a.value = *b.value;
+                    },
+                }, var, other.var);
             }
-            template <typename T> requires can_initialize_elem<T &&>
-            constexpr operator T &&() const noexcept(can_nothrow_initialize_elem<T &&>)
+            constexpr Reference &operator=(const Reference &&other) const noexcept(can_nothrow_move_assign_elems) requires can_move_assign_elems
             {
-                return to<T &&>();
+                return std::visit(detail::overload{
+                    []<typename A, typename B>(A, B) -> bool requires std::is_same_v<A, std::monostate> || std::is_same_v<A, std::monostate>
+                    {
+                        BETTER_INIT_ABORT
+                    },
+                    [](auto a, auto b) -> bool
+                    {
+                        *a.value = std::move(*b.value);
+                    },
+                }, var, other.var);
             }
 
-            template <typename T> requires can_assign_from_elem<T>
-            constexpr const Reference &operator=(T &&other) const noexcept(can_nothrow_assign_from_elem<T>)
+            constexpr operator Value() const & noexcept(can_nothrow_copy_extract_elems) requires can_copy_extract_elems
             {
-                if constexpr (sizeof...(P) == 0)
+                if (var.index() == 0 || var.valueless_by_exception())
+                    BETTER_INIT_ABORT
+                Value ret;
+                detail::with_constexpr_index<sizeof...(P)>(var.index() - 1, [&](auto index)
                 {
-                    *(volatile int *)nullptr = 0; // Crash.
-                }
-                else
+                    constexpr std::size_t i = index.value + 1;
+                    ret.var.template emplace<i>(static_cast<const std::remove_reference_t<typename std::variant_alternative_t<i, decltype(var)>::tag> &>(std::get<i>(var).value));
+                });
+                return ret;
+            }
+            constexpr operator Value() const && noexcept(can_nothrow_copy_extract_elems) requires can_copy_extract_elems
+            {
+                if (var.index() == 0 || var.valueless_by_exception())
+                    BETTER_INIT_ABORT
+                Value ret;
+                detail::with_constexpr_index<sizeof...(P)>(var.index() - 1, [&](auto index)
                 {
-                    constexpr void (*lambdas[])(void *, T &&) = {
-                        +[](void *ptr, T &&source)
-                        {
-                            // Don't want to include `<utility>` for `std::forward`.
-                            static_cast<P &&>(*reinterpret_cast<std::remove_reference_t<P> *>(ptr)) = static_cast<T &&>(source);
-                        }...
-                    };
-                    lambdas[index](target, static_cast<T &&>(other));
-                }
+                    constexpr std::size_t i = index.value + 1;
+                    ret.var.template emplace<i>(static_cast<std::remove_reference_t<typename std::variant_alternative_t<i, decltype(var)>::tag> &&>(std::get<i>(var).value));
+                });
+                return ret;
+            }
+            #error need copy and move assignment from value VVVVVV
+            constexpr Reference &operator=(const Value &value) const & noexcept(can_nothrow_copy_insert_elems) requires can_copy_insert_elems
+            {
+                return std::visit(detail::overload{
+                    []<typename A, typename B>(A, B) -> bool requires std::is_same_v<A, std::monostate> || std::is_same_v<A, std::monostate>
+                    {
+                        BETTER_INIT_ABORT
+                    },
+                    [](auto a, auto b) -> bool
+                    {
+                        *a.value = *b.value;
+                    },
+                }, var, other.var);
+            }
+
+            template <typename T> requires can_initialize_with_elem<T>
+            constexpr operator T() const noexcept(can_nothrow_initialize_with_elem<T>)
+            {
+                return detail_to<detail::fwd::forward, T>();
+            }
+            template <typename T> requires can_initialize_with_elem<T &&>
+            constexpr operator T &&() const noexcept(can_nothrow_initialize_with_elem<T &&>)
+            {
+                return detail_to<detail::fwd::forward, T &&>();
+            }
+
+            template <typename T> requires can_assign_elem_from<T>
+            constexpr const Reference &operator=(T &&other) const noexcept(can_nothrow_assign_elem_from<T>)
+            {
+                std::visit([&](auto ptr) -> void
+                {
+                    *ptr.value = std::forward<T>(other);
+                }, var);
                 return *this;
             }
 
             // E.g. `std::sort` needs this.
             friend constexpr void swap(const Reference &a, const Reference &b) noexcept(detail::all_nothrow_swappable<P...>) requires detail::all_swappable<P...>
             {
-                a.template double_dispatch<void, detail::perform_adl_swap>(b);
+                std::visit([&](auto a, auto b) -> void
+                {
+                    std::swap(*a.value, *b.value);
+                }, a.var, b.var);
             }
 
-            #define DETAIL_BETTER_INIT_CMP(name_, op_) \
-                friend constexpr bool operator op_(Reference a, Reference b) \
+            #define DETAIL_BETTER_INIT_CMP(name_, op_, is_eq_) \
+                friend constexpr bool operator op_(const Reference &a, const Reference &b) \
                 noexcept(detail::cmp::support_nothrow_cmp<detail::cmp::name_, P...>) \
                 requires detail::cmp::support_cmp<detail::cmp::name_, P...> \
-                {return a.template double_dispatch<bool, detail::cmp::name_>(b);}
+                {return a.template detail_compare<detail::cmp::name_, is_eq_>(b);}
 
             DETAIL_BETTER_INIT_CMP_OPS(DETAIL_BETTER_INIT_CMP)
             #undef DETAIL_BETTER_INIT_CMP
@@ -397,8 +432,9 @@ namespace better_init
 
           public:
             // C++20 `std::iterator_traits` needs this to auto-detect stuff.
-            // Don't want to specify typedefs manually, because I'd need the iterator category tag, and I don't want to include `<iterator>`.
-            using value_type = Reference;
+            // Don't want to specify typedefs manually, because I'd need the iterator category tag, and I don't want to include `<iterator>` if I don't have to.
+            // Besides, this lets me use `std::iterator_traits` category detection to check iterator correctness.
+            using value_type = Value;
 
             constexpr Iterator() noexcept {}
 
@@ -413,10 +449,7 @@ namespace better_init
             {
                 return a.ref == b.ref;
             }
-            friend constexpr bool operator!=(Iterator a, Iterator b) noexcept
-            {
-                return !(a == b);
-            }
+            friend constexpr bool operator!=(Iterator a, Iterator b) noexcept {return !(a == b);}
             friend constexpr bool operator<(Iterator a, Iterator b) noexcept
             {
                 // Don't want to include `<functional>` for `std::less`, so need to cast to an integer to avoid UB.
@@ -451,7 +484,7 @@ namespace better_init
             constexpr friend Iterator operator+(Iterator it, std::ptrdiff_t n) noexcept {it += n; return it;}
             constexpr friend Iterator operator+(std::ptrdiff_t n, Iterator it) noexcept {it += n; return it;}
             constexpr friend Iterator operator-(Iterator it, std::ptrdiff_t n) noexcept {it -= n; return it;}
-            constexpr friend Iterator operator-(std::ptrdiff_t n, Iterator it) noexcept {it -= n; return it;}
+            // There's no `offset - iterator`.
 
             constexpr friend std::ptrdiff_t operator-(Iterator a, Iterator b) noexcept {return a.ref - b.ref;}
 
