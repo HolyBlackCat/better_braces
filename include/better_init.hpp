@@ -27,9 +27,16 @@
 
 // This file is included by this header automatically, if it exists.
 // Put your customizations here.
+// You can redefine various macros defined below (in the config file, or elsewhere),
+// and specialize templates in `better_init::custom` (also in the config file, or elsewhere).
 #ifndef BETTER_INIT_CONFIG
 #define BETTER_INIT_CONFIG "better_init_config.hpp"
 #endif
+
+// CONTAINER REQUIREMENTS
+// All of those can be worked around by specializing `better_init::custom::range_traits` for your container.
+// * Must have a constructor from two iterators.
+// * Must have a `::value_type` typedef with the element type ()
 
 namespace better_init
 {
@@ -50,12 +57,17 @@ namespace better_init
             // Whether to make the conversion operator of `init{...}` implicit.
             static constexpr bool implicit_init = std::is_constructible_v<T, detail::any_init_list>;
 
+            // Because of a MSVC quirk (bug, probably?) we can't use a templated `operator T` for our range elements,
+            // and must know exactly what we're converting to.
+            using element_type = typename T::value_type;
+
             // How to construct `T` from a pair of iterators. Defaults to `T(begin, end)`.
-            template <typename Iter, std::enable_if_t<std::is_constructible_v<T, Iter, Iter>, int> = 0>
-            static constexpr T construct(Iter begin, Iter end) noexcept(std::is_nothrow_constructible_v<T, Iter, Iter>)
+            // Extra arguments can be appended at the end, if you pass them to `.to<T>(...)`.
+            template <typename Iter, typename ...P, std::enable_if_t<std::is_constructible_v<T, Iter, Iter, P...>, int> = 0>
+            static constexpr T construct(Iter begin, Iter end, P &&... params) noexcept(std::is_nothrow_constructible_v<T, Iter, Iter, P...>)
             {
-                // Don't want to include `<utility>` for `std::move`.
-                return T(static_cast<Iter &&>(begin), static_cast<Iter &&>(end));
+                // Don't want to include `<utility>` for `std::move` or `std::forward`.
+                return T(static_cast<Iter &&>(begin), static_cast<Iter &&>(end), static_cast<P &&>(params)...);
             }
         };
     }
@@ -101,14 +113,18 @@ namespace better_init
         template <typename T>
         T &&declval() noexcept; // Not defined.
 
-        // Whether `T` is constructible from a pair of `Iter`s.
-        template <typename T, typename Iter, typename = void>
-        struct constructible_from_iters : std::false_type {};
-        template <typename T, typename Iter>
-        struct constructible_from_iters<T, Iter, decltype(void(custom::range_traits<T>::construct(declval<Iter &&>(), declval<Iter &&>())))> : std::true_type {};
+        // Whether `T` is constructible from a pair of `Iter`s, possibly with extra arguments.
+        template <typename Void, typename T, typename Iter, typename ...P>
+        struct constructible_from_iters_helper : std::false_type {};
+        template <typename T, typename Iter, typename ...P>
+        struct constructible_from_iters_helper<decltype(void(custom::range_traits<T>::construct(declval<Iter &&>(), declval<Iter &&>()))), T, Iter, P...> : std::true_type {};
+        template <typename T, typename Iter, typename ...P>
+        inline constexpr bool constructible_from_iters = constructible_from_iters_helper<void, T, Iter, P...>::value;
 
-        template <typename T, typename Iter, typename = void>
-        struct nothrow_constructible_from_iters : std::integral_constant<bool, noexcept(custom::range_traits<T>::construct(declval<Iter &&>(), declval<Iter &&>()))> {};
+        template <typename T, typename Iter, typename ...P>
+        struct nothrow_constructible_from_iters_helper : std::integral_constant<bool, noexcept(custom::range_traits<T>::construct(declval<Iter &&>(), declval<Iter &&>()))> {};
+        template <typename T, typename Iter, typename ...P>
+        inline constexpr bool nothrow_constructible_from_iters = nothrow_constructible_from_iters_helper<T, Iter, P...>::value;
     }
 
     template <typename ...P>
@@ -120,14 +136,23 @@ namespace better_init
         template <typename T> static constexpr bool can_nothrow_initialize_elem = (std::is_nothrow_constructible_v<T, P &&> && ...);
 
       private:
+        template <typename T>
         class Reference
         {
             friend BETTER_INIT_IDENTIFIER;
             void *target = nullptr;
             detail::size_t index = 0;
 
-            template <typename T>
-            constexpr T to() const
+            constexpr Reference() {}
+
+          public:
+            // Non-copyable.
+            // The list creates and owns all its references, and exposes actual references to them.
+            // This is because pre-C++20 iterator requirements force us to return actual references from `*`, and more importantly `[]`.
+            Reference(const Reference &) = delete;
+            Reference &operator=(const Reference &) = delete;
+
+            constexpr operator T() const noexcept(can_nothrow_initialize_elem<T>)
             {
                 if constexpr (sizeof...(P) == 0)
                 {
@@ -147,44 +172,30 @@ namespace better_init
                 }
             }
 
-            constexpr Reference() {}
-
-          public:
-            // Non-copyable.
-            // The list creates and owns all its references, and exposes actual references to them.
-            // This is because pre-C++20 iterator requirements force us to return actual references from `*`, and more importantly `[]`.
-            Reference(const Reference &) = delete;
-            Reference &operator=(const Reference &) = delete;
-
-            template <typename T, std::enable_if_t<can_initialize_elem<T>, int> = 0>
-            constexpr operator T() const noexcept(can_nothrow_initialize_elem<T>)
-            {
-                return to<T>();
-            }
-
             // Would also add `operator T &&`, but it confuses GCC (note, not libstdc++).
         };
 
+        template <typename T>
         class Iterator
         {
             friend class BETTER_INIT_IDENTIFIER;
-            const Reference *ref = nullptr;
+            const Reference<T> *ref = nullptr;
 
           public:
             // Need this for the C++20 `std::iterator_traits` auto-detection to kick in.
             // Note that at least libstdc++'s category detection needs this to match the return type of `*`, except for cvref-qualifiers.
             // It's tempting to put `void` or some broken type here, to prevent extracting values from the range, which we don't want.
             // But that causes problems, and just `Reference` is enough, since it's non-copyable anyway.
-            using value_type = Reference;
+            using value_type = Reference<T>;
             // using iterator_category = std::random_access_iterator_tag;
-            // using reference = Reference;
+            // using reference = Reference<T>;
             // using pointer = void;
             // using difference_type = detail::ptrdiff_t;
 
             constexpr Iterator() noexcept {}
 
             // `LegacyForwardIterator` requires us to return an actual reference here.
-            constexpr const Reference &operator*() const noexcept {return *ref;}
+            constexpr const Reference<T> &operator*() const noexcept {return *ref;}
 
             // No `operator->`. This causes C++20 `std::iterator_traits` to guess `pointer_type == void`, which sounds ok to me.
 
@@ -238,7 +249,7 @@ namespace better_init
             constexpr Iterator &operator+=(detail::ptrdiff_t n) noexcept {ref += n; return *this;}
             constexpr Iterator &operator-=(detail::ptrdiff_t n) noexcept {ref -= n; return *this;}
 
-            constexpr const Reference &operator[](detail::ptrdiff_t i) const noexcept
+            constexpr const Reference<T> &operator[](detail::ptrdiff_t i) const noexcept
             {
                 return *(*this + i);
             }
@@ -246,55 +257,62 @@ namespace better_init
 
         // Could use `std::array`, but want to use less headers.
         // I know that `[[no_unique_address]]` is disabled in MSVC for now and they use a different attribute, but don't care because there are no other members here.
-        // Must store `Reference`s here, because `std::random_access_iterator` requires `operator[]` to return the same type as `operator*`,
-        // and `LegacyForwardIterator` requires `operator*` to return an actual reference. If we don't have those here, we don't have anything for the references to point to.
-        [[no_unique_address]] std::conditional_t<sizeof...(P) == 0, detail::empty, Reference[sizeof...(P) + (sizeof...(P) == 0)]> elems;
+        // Can't store `Reference`s here directly, because we can't use a templated `operator T` in our elements,
+        // because it doesn't work correctly on MSVC (but not on GCC and Clang).
+        [[no_unique_address]] std::conditional_t<sizeof...(P) == 0, detail::empty, void *[sizeof...(P) + (sizeof...(P) == 0)]> elems;
 
       public:
-        // The element-wise constructor.
+        // Whether this list can be used to initialize a range type `T`, with extra constructor parameters `P...`.
+        template <typename T, typename ...Q> static constexpr bool can_initialize_range         = detail::constructible_from_iters        <T, Iterator<T>, Q...> && can_initialize_elem        <typename custom::range_traits<T>::element_type>;
+        template <typename T, typename ...Q> static constexpr bool can_nothrow_initialize_range = detail::nothrow_constructible_from_iters<T, Iterator<T>, Q...> && can_nothrow_initialize_elem<typename custom::range_traits<T>::element_type>;
+
+        // The constructor from a braced (or parenthesized) list.
         [[nodiscard]] constexpr BETTER_INIT_IDENTIFIER(P &&... params) noexcept
-        {
-            detail::size_t i = 0;
-            ((elems[i].target = const_cast<void *>(static_cast<const void *>(&params)), elems[i].index = i, i++), ...);
-        }
+            : elems{const_cast<void *>(static_cast<const void *>(&params))...}
+        {}
 
-        // Iterators.
-        // Those should be `&&`-qualified, but then we no longer satisfy `std::ranges::range`.
-        [[nodiscard]] constexpr Iterator begin() const noexcept
-        {
-            Iterator ret;
-            if constexpr (sizeof...(P) > 0)
-                ret.ref = elems;
-            return ret;
-        }
-        [[nodiscard]] constexpr Iterator end() const noexcept
-        {
-            Iterator ret;
-            if constexpr (sizeof...(P) > 0)
-                ret.ref = elems + sizeof...(P);
-            return ret;
-        }
+        // The conversion functions below are `&&`-qualified as a reminder that your initializer elements can be dangling.
 
-        // Convert to a range.
-        template <typename T, std::enable_if_t<detail::constructible_from_iters<T, Iterator>::value, int> = 0>
-        [[nodiscard]] constexpr T to() const && noexcept(detail::nothrow_constructible_from_iters<T, Iterator>::value)
-        {
-            // Don't want to include `<utility>` for `std::move`.
-            return custom::range_traits<T>::construct(begin(), end());
-        }
-
-        // Implicitly convert to a range.
-        template <typename T, std::enable_if_t<detail::constructible_from_iters<T, Iterator>::value, int> = 0>
-        [[nodiscard]] constexpr explicit operator T() const && noexcept(detail::nothrow_constructible_from_iters<T, Iterator>::value)
+        // Implicit conversion to a container. Implicit-ness is only enabled when it has a `std::initializer_list` constructor.
+        template <typename T, std::enable_if_t<can_initialize_range<T> && custom::range_traits<T>::implicit_init, int> = 0>
+        [[nodiscard]] constexpr operator T() const && noexcept(can_nothrow_initialize_range<T>)
         {
             // Don't want to include `<utility>` for `std::move`.
             return static_cast<const BETTER_INIT_IDENTIFIER &&>(*this).to<T>();
         }
-        template <typename T, std::enable_if_t<detail::constructible_from_iters<T, Iterator>::value && custom::range_traits<T>::implicit_init, int> = 0>
-        [[nodiscard]] constexpr operator T() const && noexcept(detail::nothrow_constructible_from_iters<T, Iterator>::value)
+        // Explicit conversion to a container.
+        template <typename T, std::enable_if_t<can_initialize_range<T>, int> = 0>
+        [[nodiscard]] constexpr explicit operator T() const && noexcept(can_nothrow_initialize_range<T>)
         {
             // Don't want to include `<utility>` for `std::move`.
             return static_cast<const BETTER_INIT_IDENTIFIER &&>(*this).to<T>();
+        }
+
+        // Conversion to a container with extra arguments (such as an allocator).
+        template <typename T, typename ...Q, std::enable_if_t<can_initialize_range<T, Q...>, int> = 0>
+        [[nodiscard]] constexpr T to(Q &&... extra_args) const && noexcept(can_nothrow_initialize_range<T, Q...>)
+        {
+            using elem_type = typename custom::range_traits<T>::element_type;
+
+            // Could use `std::array`, but want to use less headers.
+            // Must store `Reference`s here, because `std::random_access_iterator` requires `operator[]` to return the same type as `operator*`,
+            // and `LegacyForwardIterator` requires `operator*` to return an actual reference. If we don't have those here, we don't have anything for the references to point to.
+            std::conditional_t<sizeof...(P) == 0, detail::empty, Reference<elem_type>[sizeof...(P) + (sizeof...(P) == 0)]> refs;
+            Iterator<elem_type> begin, end;
+
+            if constexpr (sizeof...(P) > 0)
+            {
+                for (detail::size_t i = 0; i < sizeof...(P); i++)
+                {
+                    refs[i].target = elems[i];
+                    refs[i].index = i;
+                }
+
+                begin.ref = refs;
+                end.ref = refs + sizeof...(P);
+            }
+
+            return custom::range_traits<T>::construct(begin, end, static_cast<Q &&>(extra_args)...);
         }
     };
 

@@ -32,31 +32,55 @@
 
 template <typename T> using iterator_of = std::remove_cvref_t<decltype(std::declval<T &>().begin())>;
 
-#define CHECK_LIST_TYPE(...) \
+#define CHECKED_LIST_TYPES(X) \
+    /* Target type         | Element types... */\
+    X(int,                  ) \
+    X(int,                  int, int) \
+    X(int,                  int, const int, int &, const int &) \
+    X(std::unique_ptr<int>, std::nullptr_t &, std::unique_ptr<int>) \
+
+#define CHECK_LIST_TYPE(target_, ...) \
     template class better_init::init<__VA_ARGS__>; \
-    static_assert(std::random_access_iterator<iterator_of<init<__VA_ARGS__>>>); \
-    static_assert(std::is_same_v<std::iterator_traits<iterator_of<init<__VA_ARGS__>>>::iterator_category, std::random_access_iterator_tag>);
+    template std::vector<target_> better_init::init<__VA_ARGS__>::to<std::vector<target_>>() const &&;
+CHECKED_LIST_TYPES(CHECK_LIST_TYPE)
+#undef CHECK_LIST_TYPE
 
-// Make sure `init<??>` can be instantiated and the iterators have the right category and pass the concept.
-CHECK_LIST_TYPE()
-CHECK_LIST_TYPE(int, int)
-CHECK_LIST_TYPE(int, const int, int &, const int &)
-CHECK_LIST_TYPE(std::nullptr_t &, std::unique_ptr<int>)
-
-struct FakeContainerWithoutListCtor
+struct ContainerWithoutListCtor
 {
+    using value_type = int;
+
     template <typename T>
-    FakeContainerWithoutListCtor(T, T) {}
+    ContainerWithoutListCtor(T, T) {}
 };
 
-int main()
+template <typename T>
+struct IteratorCategoryChecker
 {
-    { // Iterator sanity tests.
-        int n1 = 1, n2 = 2, n3 = 3;
-        init i{n1, n2, n3};
-        auto begin = i.begin();
-        auto end = i.end();
+    using value_type = T;
 
+    template <typename U>
+    IteratorCategoryChecker(U, U)
+    {
+        static_assert(std::random_access_iterator<U>);
+        static_assert(std::is_same_v<typename std::iterator_traits<U>::iterator_category, std::random_access_iterator_tag>);
+    }
+};
+template <typename ...Elems, typename Target>
+void check_iterator_category_helper(Target *)
+{
+    if (false)
+        (void)IteratorCategoryChecker<Target>(init{(Elems &&)*(std::remove_reference_t<Elems> *)nullptr...});
+}
+// Pass to `CHECKED_LIST_TYPES` to check iterator categories of our iterators.
+#define CHECK_ITERATOR_CATEGORY(target_, ...) check_iterator_category_helper<__VA_ARGS__>((target_ *)nullptr);
+
+struct IteratorSanityChecker
+{
+    using value_type = int;
+
+    template <typename T>
+    IteratorSanityChecker(T begin, T end)
+    {
         { // Increments and decrements.
             auto iter = begin;
             ASSERT_EQ(int(*iter++), 1);
@@ -111,6 +135,15 @@ int main()
             ASSERT(b >= a && !(a >= b) && b >= b && c >= b && !(b >= c));
         }
     }
+};
+
+int main()
+{
+    // Check iterator categories.
+    CHECKED_LIST_TYPES(CHECK_ITERATOR_CATEGORY)
+
+    // Iterator sanity tests.
+    (void)IteratorSanityChecker(init{1, 2, 3});
 
     { // Generic usage tests.
         std::vector<std::unique_ptr<int>> vec1 = init{nullptr, std::make_unique<int>(42)};
@@ -140,9 +173,9 @@ int main()
     }
 
     { // Explicit-ness of the conversion operator.
-        static_assert(!std::is_convertible_v<init<int, int>, FakeContainerWithoutListCtor>);
-        static_assert(std::is_constructible_v<FakeContainerWithoutListCtor, init<int, int>>);
-        (void)init{1, 2}.to<FakeContainerWithoutListCtor>();
+        static_assert(!std::is_convertible_v<init<int, int>, ContainerWithoutListCtor>);
+        static_assert(std::is_constructible_v<ContainerWithoutListCtor, init<int, int>>);
+        (void)init{1, 2}.to<ContainerWithoutListCtor>();
     }
 
     std::cout << "OK\n";
