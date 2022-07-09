@@ -19,7 +19,7 @@ This library provides a workaround:
 std::vector<std::unique_ptr<int>> vec = init{nullptr, std::make_unique<int>(42)};
 ```
 
-In fact, non-movable types are also supported:
+Non-movable types are also supported:
 ```cpp
 #include <better_init.hpp>
 std::vector<std::atomic_int> vec = init{1, 2, 3};

@@ -143,5 +143,5 @@ int main()
         (void)init{1, 2}.to<FakeContainerWithoutListCtor>();
     }
 
-    std::cout << "Tests passed.\n";
+    std::cout << "OK\n";
 }

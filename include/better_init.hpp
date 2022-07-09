@@ -48,7 +48,7 @@ namespace better_init
         struct basic_range_traits
         {
             // Whether to make the conversion operator of `init{...}` implicit.
-            static constexpr bool implicit = std::is_constructible_v<T, detail::any_init_list>;
+            static constexpr bool implicit_init = std::is_constructible_v<T, detail::any_init_list>;
 
             // How to construct `T` from a pair of iterators. Defaults to `T(begin, end)`.
             template <typename Iter, std::enable_if_t<std::is_constructible_v<T, Iter, Iter>, int> = 0>
@@ -63,7 +63,7 @@ namespace better_init
     // Customization points.
     namespace custom
     {
-        // Customizes the behavior of `init::to()` and of the implicit conversion to a container.
+        // Customizes the treatment of various containers.
         template <typename T, typename = void>
         struct range_traits : detail::basic_range_traits<T> {};
     }
@@ -290,7 +290,7 @@ namespace better_init
             // Don't want to include `<utility>` for `std::move`.
             return static_cast<const BETTER_INIT_IDENTIFIER &&>(*this).to<T>();
         }
-        template <typename T, std::enable_if_t<detail::constructible_from_iters<T, Iterator>::value && custom::range_traits<T>::implicit, int> = 0>
+        template <typename T, std::enable_if_t<detail::constructible_from_iters<T, Iterator>::value && custom::range_traits<T>::implicit_init, int> = 0>
         [[nodiscard]] constexpr operator T() const && noexcept(detail::nothrow_constructible_from_iters<T, Iterator>::value)
         {
             // Don't want to include `<utility>` for `std::move`.
