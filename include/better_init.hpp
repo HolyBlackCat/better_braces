@@ -108,9 +108,7 @@ namespace better_init
         struct constructible_from_iters<T, Iter, decltype(void(custom::range_traits<T>::construct(declval<Iter &&>(), declval<Iter &&>())))> : std::true_type {};
 
         template <typename T, typename Iter, typename = void>
-        struct nothrow_constructible_from_iters : std::false_type {};
-        template <typename T, typename Iter>
-        struct nothrow_constructible_from_iters<T, Iter, std::enable_if_t<noexcept(custom::range_traits<T>::construct(declval<Iter &&>(), declval<Iter &&>()))>> : std::true_type {};
+        struct nothrow_constructible_from_iters : std::integral_constant<bool, noexcept(custom::range_traits<T>::construct(declval<Iter &&>(), declval<Iter &&>()))> {};
     }
 
     template <typename ...P>
