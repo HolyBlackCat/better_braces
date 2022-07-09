@@ -1,4 +1,6 @@
 #include "better_init.hpp"
+// For https://gcc.godbolt.org:
+// #include <https://raw.githubusercontent.com/HolyBlackCat/better_init/master/include/better_init.hpp>
 
 #include <atomic>
 #include <cstddef>
