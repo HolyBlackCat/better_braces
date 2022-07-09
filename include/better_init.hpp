@@ -87,11 +87,6 @@ namespace better_init
 #endif
 #endif
 
-namespace std
-{
-    struct random_access_iterator_tag; // Yes. Don't want to include `<iterator>`.
-}
-
 namespace better_init
 {
     namespace detail
@@ -146,7 +141,7 @@ namespace better_init
                         +[](void *ptr) -> T
                         {
                             // Don't want to include `<utility>` for `std::forward`.
-                            return T(static_cast<P &&>(*reinterpret_cast<P *>(ptr)));
+                            return T(static_cast<P &&>(*reinterpret_cast<std::remove_reference_t<P> *>(ptr)));
                         }...
                     };
                     return lambdas[index](target);
@@ -177,13 +172,15 @@ namespace better_init
             const Reference *ref = nullptr;
 
           public:
-            // Can't rely on C++20 auto-detection of those typedefs, because at least in libstdc++, it doesn't like the disabled `value_type`.
-            using iterator_category = std::random_access_iterator_tag;
-            using pointer = void;
-            using difference_type = detail::ptrdiff_t;
-            using reference = Reference;
-            // Don't want elements to be copied out of the list. This is the smallest definition that doesn't fail the concepts.
-            struct value_type {constexpr value_type(const Reference &) noexcept {}};
+            // Need this for the C++20 `std::iterator_traits` auto-detection to kick in.
+            // Note that at least libstdc++'s category detection needs this to match the return type of `*`, except for cvref-qualifiers.
+            // It's tempting to put `void` or some broken type here, to prevent extracting values from the range, which we don't want.
+            // But that causes problems, and just `Reference` is enough, since it's non-copyable anyway.
+            using value_type = Reference;
+            // using iterator_category = std::random_access_iterator_tag;
+            // using reference = Reference;
+            // using pointer = void;
+            // using difference_type = detail::ptrdiff_t;
 
             constexpr Iterator() noexcept {}
 
@@ -259,7 +256,7 @@ namespace better_init
         [[nodiscard]] constexpr BETTER_INIT_IDENTIFIER(P &&... params) noexcept
         {
             detail::size_t i = 0;
-            ((elems[i].target = &params, elems[i].index = i, i++), ...);
+            ((elems[i].target = const_cast<void *>(static_cast<const void *>(&params)), elems[i].index = i, i++), ...);
         }
 
         // Iterators.
