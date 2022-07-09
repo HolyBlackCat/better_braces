@@ -39,7 +39,7 @@ namespace better_init
         struct any_init_list
         {
             template <typename T>
-            constexpr operator std::initializer_list<T>() const noexcept; // Not defined.
+            operator std::initializer_list<T>() const noexcept; // Not defined.
         };
 
         // Default implementation for `custom::range_traits`.
@@ -51,7 +51,7 @@ namespace better_init
             static constexpr bool implicit = std::is_constructible_v<T, detail::any_init_list>;
 
             // How to construct `T` from a pair of iterators. Defaults to `T(begin, end)`.
-            template <typename Iter> requires std::is_constructible_v<T, Iter, Iter>
+            template <typename Iter, std::enable_if_t<std::is_constructible_v<T, Iter, Iter>, int> = 0>
             static constexpr T construct(Iter begin, Iter end) noexcept(std::is_nothrow_constructible_v<T, Iter, Iter>)
             {
                 // Don't want to include `<utility>` for `std::move`.
@@ -98,18 +98,19 @@ namespace better_init
         using ptrdiff_t = decltype((int *)nullptr - (int *)nullptr);
         static_assert(sizeof(size_t) == sizeof(void *)); // We use it place of `std::uintptr_t` too.
 
-        // Whether `T` is constructible from a pair of `Iter`s.
-        template <typename T, typename Iter>
-        concept constructible_from_iters = requires(Iter i)
-        {
-            custom::range_traits<T>::construct(static_cast<Iter &&>(i), static_cast<Iter &&>(i));
-        };
+        template <typename T>
+        T &&declval() noexcept; // Not defined.
 
+        // Whether `T` is constructible from a pair of `Iter`s.
+        template <typename T, typename Iter, typename = void>
+        struct constructible_from_iters : std::false_type {};
         template <typename T, typename Iter>
-        concept nothrow_constructible_from_iters = requires(Iter i)
-        {
-            { custom::range_traits<T>::construct(static_cast<Iter &&>(i), static_cast<Iter &&>(i)) } noexcept;
-        };
+        struct constructible_from_iters<T, Iter, decltype(void(custom::range_traits<T>::construct(declval<Iter &&>(), declval<Iter &&>())))> : std::true_type {};
+
+        template <typename T, typename Iter, typename = void>
+        struct nothrow_constructible_from_iters : std::false_type {};
+        template <typename T, typename Iter>
+        struct nothrow_constructible_from_iters<T, Iter, std::enable_if_t<noexcept(custom::range_traits<T>::construct(declval<Iter &&>(), declval<Iter &&>()))>> : std::true_type {};
     }
 
     template <typename ...P>
@@ -157,7 +158,7 @@ namespace better_init
             Reference(const Reference &) = delete;
             Reference &operator=(const Reference &) = delete;
 
-            template <typename T> requires can_initialize_elem<T>
+            template <typename T, std::enable_if_t<can_initialize_elem<T>, int> = 0>
             constexpr operator T() const noexcept(can_nothrow_initialize_elem<T>)
             {
                 return to<T>();
@@ -277,16 +278,22 @@ namespace better_init
         }
 
         // Convert to a range.
-        template <typename T> requires detail::constructible_from_iters<T, Iterator>
-        [[nodiscard]] constexpr T to() const && noexcept(detail::nothrow_constructible_from_iters<T, Iterator>)
+        template <typename T, std::enable_if_t<detail::constructible_from_iters<T, Iterator>::value, int> = 0>
+        [[nodiscard]] constexpr T to() const && noexcept(detail::nothrow_constructible_from_iters<T, Iterator>::value)
         {
             // Don't want to include `<utility>` for `std::move`.
             return custom::range_traits<T>::construct(begin(), end());
         }
 
         // Implicitly convert to a range.
-        template <typename T> requires detail::constructible_from_iters<T, Iterator>
-        [[nodiscard]] constexpr explicit(!custom::range_traits<T>::implicit) operator T() const && noexcept(detail::nothrow_constructible_from_iters<T, Iterator>)
+        template <typename T, std::enable_if_t<detail::constructible_from_iters<T, Iterator>::value, int> = 0>
+        [[nodiscard]] constexpr explicit operator T() const && noexcept(detail::nothrow_constructible_from_iters<T, Iterator>::value)
+        {
+            // Don't want to include `<utility>` for `std::move`.
+            return static_cast<const BETTER_INIT_IDENTIFIER &&>(*this).to<T>();
+        }
+        template <typename T, std::enable_if_t<detail::constructible_from_iters<T, Iterator>::value && custom::range_traits<T>::implicit, int> = 0>
+        [[nodiscard]] constexpr operator T() const && noexcept(detail::nothrow_constructible_from_iters<T, Iterator>::value)
         {
             // Don't want to include `<utility>` for `std::move`.
             return static_cast<const BETTER_INIT_IDENTIFIER &&>(*this).to<T>();

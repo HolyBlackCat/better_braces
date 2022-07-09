@@ -6,9 +6,9 @@ SRC := tests.cpp
 .PHONY: tests
 tests:
 	$(info CXX = $(CXX))
-	@echo With -O0, sanitized:
-	@$(CXX) $(SRC) -o tests $(CXXFLAGS) -fsanitize=address -fsanitize=undefined && ./tests
-	@echo With -O3:
+	@echo -n 'With -O0, sanitized: '
+	@$(CXX) $(SRC) -o tests $(CXXFLAGS) -O0 -fsanitize=address -fsanitize=undefined && ./tests
+	@echo -n 'With -O3:            '
 	@$(CXX) $(SRC) -o tests $(CXXFLAGS) -O3 && ./tests
 
 

@@ -41,6 +41,12 @@ CHECK_LIST_TYPE(int, int)
 CHECK_LIST_TYPE(int, const int, int &, const int &)
 CHECK_LIST_TYPE(std::nullptr_t &, std::unique_ptr<int>)
 
+struct FakeContainerWithoutListCtor
+{
+    template <typename T>
+    FakeContainerWithoutListCtor(T, T) {}
+};
+
 int main()
 {
     { // Iterator sanity tests.
@@ -129,6 +135,12 @@ int main()
         ASSERT(vec5[0].load() == 4);
         ASSERT(vec5[1].load() == 5);
         ASSERT(vec5[2].load() == 6);
+    }
+
+    { // Explicit-ness of the conversion operator.
+        static_assert(!std::is_convertible_v<init<int, int>, FakeContainerWithoutListCtor>);
+        static_assert(std::is_constructible_v<FakeContainerWithoutListCtor, init<int, int>>);
+        (void)init{1, 2}.to<FakeContainerWithoutListCtor>();
     }
 
     std::cout << "Tests passed.\n";
