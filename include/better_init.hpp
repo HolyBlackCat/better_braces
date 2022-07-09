@@ -49,35 +49,41 @@ namespace better_init
             operator std::initializer_list<T>() const noexcept; // Not defined.
         };
 
-        // Default implementation for `custom::range_traits`.
-        // Override `custom::range_traits`, not this.
+        // Don't want to include extra headers, so I roll my own typedefs.
+        using size_t = decltype(sizeof(int));
+        using ptrdiff_t = decltype((int *)nullptr - (int *)nullptr);
+        using uintptr_t = size_t;
+        static_assert(sizeof(uintptr_t) == sizeof(void *));
+
         template <typename T>
-        struct basic_range_traits
-        {
-            // Whether to make the conversion operator of `init{...}` implicit.
-            static constexpr bool implicit_init = std::is_constructible_v<T, detail::any_init_list>;
-
-            // Because of a MSVC quirk (bug, probably?) we can't use a templated `operator T` for our range elements,
-            // and must know exactly what we're converting to.
-            using element_type = typename T::value_type;
-
-            // How to construct `T` from a pair of iterators. Defaults to `T(begin, end)`.
-            // Extra arguments can be appended at the end, if you pass them to `.to<T>(...)`.
-            template <typename Iter, typename ...P, std::enable_if_t<std::is_constructible_v<T, Iter, Iter, P...>, int> = 0>
-            static constexpr T construct(Iter begin, Iter end, P &&... params) noexcept(std::is_nothrow_constructible_v<T, Iter, Iter, P...>)
-            {
-                // Don't want to include `<utility>` for `std::move` or `std::forward`.
-                return T(static_cast<Iter &&>(begin), static_cast<Iter &&>(end), static_cast<P &&>(params)...);
-            }
-        };
+        T &&declval() noexcept; // Not defined.
     }
 
     // Customization points.
     namespace custom
     {
-        // Customizes the treatment of various containers.
+        // Whether to make the conversion operator of `init{...}` implicit.
+        // `T` is the target container type.
         template <typename T, typename = void>
-        struct range_traits : detail::basic_range_traits<T> {};
+        struct allow_implicit_init : std::is_constructible<T, detail::any_init_list> {};
+
+        // Because of a MSVC quirk (bug, probably?) we can't use a templated `operator T` for our range elements,
+        // and must know exactly what we're converting to.
+        template <typename T, typename = void>
+        struct element_type {using type = typename T::value_type;};
+
+        // How to construct `T` from a pair of iterators. Defaults to `T(begin, end, extra...)`.
+        // Where `extra...` are the arguments passed to `.to<T>(...)`, or empty for a conversion operator.
+        template <typename Void, typename T, typename Iter, typename ...P>
+        struct construct
+        {
+            template <typename TT = T, std::enable_if_t<std::is_constructible_v<TT, Iter, Iter, P...>, int> = 0>
+            constexpr T operator()(Iter begin, Iter end, P &&... params) noexcept(std::is_nothrow_constructible_v<T, Iter, Iter, P...>)
+            {
+                // Don't want to include `<utility>` for `std::move` or `std::forward`.
+                return T(static_cast<Iter &&>(begin), static_cast<Iter &&>(end), static_cast<P &&>(params)...);
+            }
+        };
     }
 }
 
@@ -88,6 +94,17 @@ namespace better_init
 // Lets you change the identifier used for out initializer lists.
 #ifndef BETTER_INIT_IDENTIFIER
 #define BETTER_INIT_IDENTIFIER init
+#endif
+
+// MSVC's `std::vector` refuses to be constructed even from random-access iterators if the element type is not movable.
+// Assuming the element is default-constructible, we can work around this by calling the `(size_t n)` constructor first,
+// then reconstructing elements in-place using our initializers.
+#ifndef BETTER_INIT_WORK_AROUND_IMMOVABLE_ELEM_REALLOCATION
+#ifdef _MSC_VER
+#define BETTER_INIT_WORK_AROUND_IMMOVABLE_ELEM_REALLOCATION 1
+#else
+#define BETTER_INIT_WORK_AROUND_IMMOVABLE_ELEM_REALLOCATION 0
+#endif
 #endif
 
 // Should stop the program.
@@ -105,24 +122,18 @@ namespace better_init
     {
         struct empty {};
 
-        // Don't want to include extra headers, so I roll my own typedefs.
-        using size_t = decltype(sizeof(int));
-        using ptrdiff_t = decltype((int *)nullptr - (int *)nullptr);
-        static_assert(sizeof(size_t) == sizeof(void *)); // We use it place of `std::uintptr_t` too.
-
-        template <typename T>
-        T &&declval() noexcept; // Not defined.
+        [[noreturn]] inline void abort() {BETTER_INIT_ABORT}
 
         // Whether `T` is constructible from a pair of `Iter`s, possibly with extra arguments.
         template <typename Void, typename T, typename Iter, typename ...P>
         struct constructible_from_iters_helper : std::false_type {};
         template <typename T, typename Iter, typename ...P>
-        struct constructible_from_iters_helper<decltype(void(custom::range_traits<T>::construct(declval<Iter &&>(), declval<Iter &&>()))), T, Iter, P...> : std::true_type {};
+        struct constructible_from_iters_helper<decltype(void(custom::construct<void, T, Iter, P...>{}(declval<Iter &&>(), declval<Iter &&>(), declval<P &&>()...))), T, Iter, P...> : std::true_type {};
         template <typename T, typename Iter, typename ...P>
         inline constexpr bool constructible_from_iters = constructible_from_iters_helper<void, T, Iter, P...>::value;
 
         template <typename T, typename Iter, typename ...P>
-        struct nothrow_constructible_from_iters_helper : std::integral_constant<bool, noexcept(custom::range_traits<T>::construct(declval<Iter &&>(), declval<Iter &&>()))> {};
+        struct nothrow_constructible_from_iters_helper : std::integral_constant<bool, noexcept(custom::construct<void, T, Iter, P...>{}(declval<Iter &&>(), declval<Iter &&>(), declval<P &&>()...))> {};
         template <typename T, typename Iter, typename ...P>
         inline constexpr bool nothrow_constructible_from_iters = nothrow_constructible_from_iters_helper<T, Iter, P...>::value;
     }
@@ -157,7 +168,7 @@ namespace better_init
                 if constexpr (sizeof...(P) == 0)
                 {
                     // Note: This is intentionally not a SFINAE check nor a `static_assert`, to support init from empty lists.
-                    BETTER_INIT_ABORT
+                    detail::abort();
                 }
                 else
                 {
@@ -211,7 +222,7 @@ namespace better_init
             friend constexpr bool operator<(Iterator a, Iterator b) noexcept
             {
                 // Don't want to include `<functional>` for `std::less`, so need to cast to an integer to avoid UB.
-                return detail::size_t(a.ref) < detail::size_t(b.ref);
+                return detail::uintptr_t(a.ref) < detail::uintptr_t(b.ref);
             }
             friend constexpr bool operator> (Iterator a, Iterator b) noexcept {return b < a;}
             friend constexpr bool operator<=(Iterator a, Iterator b) noexcept {return !(b < a);}
@@ -263,8 +274,8 @@ namespace better_init
 
       public:
         // Whether this list can be used to initialize a range type `T`, with extra constructor parameters `P...`.
-        template <typename T, typename ...Q> static constexpr bool can_initialize_range         = detail::constructible_from_iters        <T, Iterator<T>, Q...> && can_initialize_elem        <typename custom::range_traits<T>::element_type>;
-        template <typename T, typename ...Q> static constexpr bool can_nothrow_initialize_range = detail::nothrow_constructible_from_iters<T, Iterator<T>, Q...> && can_nothrow_initialize_elem<typename custom::range_traits<T>::element_type>;
+        template <typename T, typename ...Q> static constexpr bool can_initialize_range         = detail::constructible_from_iters        <T, Iterator<typename custom::element_type<T>::type>, Q...> && can_initialize_elem        <typename custom::element_type<T>::type>;
+        template <typename T, typename ...Q> static constexpr bool can_nothrow_initialize_range = detail::nothrow_constructible_from_iters<T, Iterator<typename custom::element_type<T>::type>, Q...> && can_nothrow_initialize_elem<typename custom::element_type<T>::type>;
 
         // The constructor from a braced (or parenthesized) list.
         [[nodiscard]] constexpr BETTER_INIT_IDENTIFIER(P &&... params) noexcept
@@ -274,7 +285,7 @@ namespace better_init
         // The conversion functions below are `&&`-qualified as a reminder that your initializer elements can be dangling.
 
         // Implicit conversion to a container. Implicit-ness is only enabled when it has a `std::initializer_list` constructor.
-        template <typename T, std::enable_if_t<can_initialize_range<T> && custom::range_traits<T>::implicit_init, int> = 0>
+        template <typename T, std::enable_if_t<can_initialize_range<T> && custom::allow_implicit_init<T>::value, int> = 0>
         [[nodiscard]] constexpr operator T() const && noexcept(can_nothrow_initialize_range<T>)
         {
             // Don't want to include `<utility>` for `std::move`.
@@ -292,7 +303,7 @@ namespace better_init
         template <typename T, typename ...Q, std::enable_if_t<can_initialize_range<T, Q...>, int> = 0>
         [[nodiscard]] constexpr T to(Q &&... extra_args) const && noexcept(can_nothrow_initialize_range<T, Q...>)
         {
-            using elem_type = typename custom::range_traits<T>::element_type;
+            using elem_type = typename custom::element_type<T>::type;
 
             // Could use `std::array`, but want to use less headers.
             // Must store `Reference`s here, because `std::random_access_iterator` requires `operator[]` to return the same type as `operator*`,
@@ -312,7 +323,7 @@ namespace better_init
                 end.ref = refs + sizeof...(P);
             }
 
-            return custom::range_traits<T>::construct(begin, end, static_cast<Q &&>(extra_args)...);
+            return custom::construct<void, T, Iterator<elem_type>, Q...>{}(begin, end, static_cast<Q &&>(extra_args)...);
         }
     };
 
@@ -321,3 +332,60 @@ namespace better_init
 }
 
 using better_init::BETTER_INIT_IDENTIFIER;
+
+
+// A workaround for MSVC's `std::vector` refusing to be constructed even from random-access iterators if the element type is not movable.
+// See the macro definition for details.
+#if BETTER_INIT_WORK_AROUND_IMMOVABLE_ELEM_REALLOCATION
+namespace better_init
+{
+    namespace custom
+    {
+        template <typename T, typename Iter, typename ...P>
+        struct construct<
+            std::enable_if_t<
+                !std::is_move_constructible_v<typename element_type<T>::type> &&
+                std::is_default_constructible_v<typename element_type<T>::type> &&
+                std::is_constructible_v<T, detail::size_t, P...> &&
+                std::is_move_constructible_v<T>
+            >,
+            T, Iter, P...
+        >
+        {
+            using elem_type = typename element_type<T>::type;
+
+            constexpr T operator()(Iter begin, Iter end, P &&... params)
+            noexcept(
+                std::is_nothrow_constructible_v<T, detail::size_t, P...> &&
+                std::is_nothrow_move_constructible_v<T> &&
+                std::is_nothrow_constructible_v<elem_type, decltype(*detail::declval<Iter>())> &&
+                std::is_nothrow_destructible_v<elem_type>
+            )
+            {
+                struct Guard
+                {
+                    elem_type *target = nullptr;
+                    ~Guard()
+                    {
+                        if (target)
+                            new(target) elem_type;
+                    }
+                };
+
+                T ret(end - begin, static_cast<P &&>(params)...);
+                auto target = ret.begin();
+                while (begin != end)
+                {
+                    target->~elem_type();
+                    Guard guard{&*target}; // This recreates the element if the constructor throws.
+                    new(guard.target) elem_type(*begin);
+                    guard.target = nullptr;;
+                    ++begin;
+                    ++target;
+                }
+                return ret;
+            }
+        };
+    }
+}
+#endif
