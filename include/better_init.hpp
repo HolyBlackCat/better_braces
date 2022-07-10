@@ -96,14 +96,23 @@ namespace better_init
 #define BETTER_INIT_IDENTIFIER init
 #endif
 
-// MSVC's `std::vector` refuses to be constructed even from random-access iterators if the element type is not movable.
-// Assuming the element is default-constructible, we can work around this by calling the `(size_t n)` constructor first,
-// then reconstructing elements in-place using our initializers.
-#ifndef BETTER_INIT_WORK_AROUND_IMMOVABLE_ELEM_REALLOCATION
+// MSVC's `std::construct_at()` has a broken SFINAE condition, interfering with construction of non-movable objects.
+// This is issue https://github.com/microsoft/STL/issues/2620, fixed at June 20, 2022 by commit https://github.com/microsoft/STL/blob/3f203cb0d9bfde929a75eed877c228f88c0c7a46/stl/inc/xutility.
+// We work around it by `reinterpret_cast`ing to a container with a modified allocator.
+// 0 = disable hack, 1 = conditionally enable if the bug is detected, 2 = always enable (for testing).
+#ifndef BETTER_INIT_ALLOCATOR_HACK
 #ifdef _MSC_VER
-#define BETTER_INIT_WORK_AROUND_IMMOVABLE_ELEM_REALLOCATION 1
+#define BETTER_INIT_ALLOCATOR_HACK 1
 #else
-#define BETTER_INIT_WORK_AROUND_IMMOVABLE_ELEM_REALLOCATION 0
+#define BETTER_INIT_ALLOCATOR_HACK 0
+#endif
+#endif
+// When `BETTER_INIT_ALLOCATOR_HACK` is enabled, we need a 'may alias' attribute to `reinterpret_cast` safely.
+#ifndef BETTER_INIT_ALLOCATOR_HACK_MAY_ALIAS
+#ifdef _MSC_VER
+#define BETTER_INIT_ALLOCATOR_HACK_MAY_ALIAS // I've heard MSVC is fairly conservative with aliasing optimizations?
+#else
+#define BETTER_INIT_ALLOCATOR_HACK_MAY_ALIAS __attribute__((__may_alias__))
 #endif
 #endif
 
@@ -334,56 +343,163 @@ namespace better_init
 using better_init::BETTER_INIT_IDENTIFIER;
 
 
-// A workaround for MSVC's `std::vector` refusing to be constructed even from random-access iterators if the element type is not movable.
 // See the macro definition for details.
-#if BETTER_INIT_WORK_AROUND_IMMOVABLE_ELEM_REALLOCATION
+#if BETTER_INIT_ALLOCATOR_HACK > 0
+#include <memory> // For `std::construct_at`, `std::allocator_traits`.
+
+// If true, assume we have pre-C++20 allocators that define `.construct()` even though they don't need it. Blindly wrap all allocators.
+// If false, assume that `.construct()` has the default behavior only if it's not defined (for the specific constructor parameters). Only wrap allocators that define it.
+#ifndef BETTER_INIT_ALLOCATOR_HACK_ASSUME_BROKEN_CONSTRUCT_FUNC
+#if defined(_MSC_VER) && (!defined(_HAS_DEPRECATED_ALLOCATOR_MEMBERS) || _HAS_DEPRECATED_ALLOCATOR_MEMBERS) // `<memory>` defines this.
+#define BETTER_INIT_ALLOCATOR_HACK_ASSUME_BROKEN_CONSTRUCT_FUNC 1
+#else
+#define BETTER_INIT_ALLOCATOR_HACK_ASSUME_BROKEN_CONSTRUCT_FUNC 0
+#endif
+#endif
+
 namespace better_init
 {
+    namespace detail
+    {
+        namespace allocator_hack
+        {
+            // Check if we're affected by the bug.
+            #if BETTER_INIT_ALLOCATOR_HACK > 1
+            inline constexpr bool compiler_has_broken_construct_at = true;
+            #else
+            struct construct_at_checker
+            {
+                constexpr construct_at_checker(int) {}
+                construct_at_checker(const construct_at_checker &) = delete;
+                construct_at_checker &operator=(const construct_at_checker &) = delete;
+            };
+
+            struct construct_at_checker_init
+            {
+                constexpr operator construct_at_checker() {return construct_at_checker(42);}
+            };
+
+            template <typename T, typename = void>
+            struct compiled_has_broken_construct_at_helper : std::true_type {};
+            template <typename T>
+            struct compiled_has_broken_construct_at_helper<T, decltype(void(std::construct_at((T *)nullptr, construct_at_checker_init{})))> : std::false_type {};
+            inline constexpr bool compiler_has_broken_construct_at = compiled_has_broken_construct_at_helper<construct_at_checker>::value;
+            #endif
+
+
+            template <typename Base> struct fixed_allocator;
+            template <typename T> struct is_fixed_allocator : std::false_type {};
+            template <typename T> struct is_fixed_allocator<fixed_allocator<T>> : std::true_type {};
+
+            // Whether `T` is a broken allocator class.
+            // We don't actually check 'broken-ness' (specialize this template if your allocator is sane).
+            // `T` must be non-final, since we're going to inherit from it.
+            // We could work around final allocators by making a member and forwarding a bunch of calls to it, but that's too much work.
+            // Also `T` can't be a specialization of our `fixed_allocator<T>`.
+            template <typename T, typename = void>
+            struct is_broken_allocator : std::false_type {};
+            template <typename T>
+            struct is_broken_allocator<T, decltype(
+                std::enable_if_t<
+                    compiler_has_broken_construct_at &&
+                    !std::is_final_v<T> &&
+                    !is_fixed_allocator<std::remove_cvref_t<T>>::value
+                >(),
+                void(declval<typename T::value_type>()),
+                void(declval<T &>().deallocate(declval<T &>().allocate(size_t{}), size_t{})),
+                // Check this last, because `std::allocator_traits` are not SFINAE-friendly to non-allocators.
+                std::enable_if_t<
+                    std::is_same_v<typename std::allocator_traits<T>::pointer, typename std::allocator_traits<T>::value_type *>
+                >()
+            )> : std::true_type {};
+
+            // Whether `T` has an allocator template argument, satisfying `is_broken_allocator`.
+            template <typename T, typename = void>
+            struct has_broken_allocator : std::false_type {};
+            template <template <typename...> class T, typename ...P, typename Void>
+            struct has_broken_allocator<T<P...>, Void> : std::integral_constant<bool, (is_broken_allocator<P>::value || ...)> {};
+
+            // If T satisfies `is_broken_allocator`, return our `fixed_allocator` for it. Otherwise return `T` unchanged.
+            template <typename T, typename = void>
+            struct replace_with_fixed_allocator {using type = T;};
+            template <typename T>
+            struct replace_with_fixed_allocator<T, std::enable_if_t<is_broken_allocator<T>::value>> {using type = fixed_allocator<T>;};
+
+            // Apply `replace_with_fixed_allocator` to each template argument of `T`.
+            template <typename T, typename = void>
+            struct substitute_allocator {using type = T;};
+            template <template <typename...> class T, typename ...P, typename Void>
+            struct substitute_allocator<T<P...>, Void> {using type = T<typename replace_with_fixed_allocator<P>::type...>;};
+
+            // Whether `.construct(ptr, P...)` should be wrapped, for allocator `T`.
+            template <typename Void, typename T, typename ...P>
+            struct should_wrap_construction : std::true_type {};
+            #if !BETTER_INIT_ALLOCATOR_HACK_ASSUME_BROKEN_CONSTRUCT_FUNC
+            template <typename T, typename ...P>
+            struct should_wrap_construction<decltype(void(declval<T &>().construct((typename T::value_type *)nullptr, declval<P &&>()...))), T, P...> : std::false_type {};
+            #endif
+
+            template <typename Base>
+            struct fixed_allocator : Base
+            {
+                // Allocator traits use this. We can't use the inherited one, since its typedef doesn't point to our own class.
+                template <typename T>
+                struct rebind
+                {
+                    using other = fixed_allocator<typename std::allocator_traits<Base>::template rebind_alloc<T>>;
+                };
+
+                // Solely for convenience. The rest of typedefs are inherited.
+                using value_type = typename std::allocator_traits<Base>::value_type;
+                using pointer = typename std::allocator_traits<Base>::pointer;
+
+                // Override `construct()` to do the right thing.
+                template <typename ...P>
+                constexpr void construct(pointer ptr, P &&... params)
+                noexcept(noexcept(construct_low(should_wrap_construction<void, Base, P...>{}, ptr, static_cast<P &&>(params)...)))
+                {
+                    construct_low(should_wrap_construction<void, Base, P...>{}, ptr, static_cast<P &&>(params)...);
+                }
+
+                template <typename ...P>
+                constexpr void construct_low(std::false_type, pointer &ptr, P &&... params)
+                noexcept(noexcept(std::allocator_traits<Base>::construct(static_cast<Base &>(*this), static_cast<pointer &&>(ptr), static_cast<P &&>(params)...)))
+                {
+                    std::allocator_traits<Base>::construct(static_cast<Base &>(*this), static_cast<pointer &&>(ptr), static_cast<P &&>(params)...);
+                }
+                template <typename ...P>
+                constexpr void construct_low(std::true_type, pointer &ptr, P &&... params)
+                noexcept(noexcept(::new(ptr) value_type(static_cast<P &&>(params)...)))
+                {
+                    ::new(ptr) value_type(static_cast<P &&>(params)...);
+                }
+            };
+        }
+    }
+
     namespace custom
     {
         template <typename T, typename Iter, typename ...P>
         struct construct<
             std::enable_if_t<
                 !std::is_move_constructible_v<typename element_type<T>::type> &&
-                std::is_default_constructible_v<typename element_type<T>::type> &&
-                std::is_constructible_v<T, detail::size_t, P...> &&
-                std::is_move_constructible_v<T>
+                detail::allocator_hack::has_broken_allocator<T>::value
             >,
             T, Iter, P...
         >
         {
             using elem_type = typename element_type<T>::type;
 
-            constexpr T operator()(Iter begin, Iter end, P &&... params)
-            noexcept(
-                std::is_nothrow_constructible_v<T, detail::size_t, P...> &&
-                std::is_nothrow_move_constructible_v<T> &&
-                std::is_nothrow_constructible_v<elem_type, decltype(*detail::declval<Iter>())> &&
-                std::is_nothrow_destructible_v<elem_type>
-            )
-            {
-                struct Guard
-                {
-                    elem_type *target = nullptr;
-                    ~Guard()
-                    {
-                        if (target)
-                            new(target) elem_type;
-                    }
-                };
+            using fixed_container = typename detail::allocator_hack::substitute_allocator<T>::type;
 
-                T ret(end - begin, static_cast<P &&>(params)...);
-                auto target = ret.begin();
-                while (begin != end)
-                {
-                    target->~elem_type();
-                    Guard guard{&*target}; // This recreates the element if the constructor throws.
-                    new(guard.target) elem_type(*begin);
-                    guard.target = nullptr;;
-                    ++begin;
-                    ++target;
-                }
-                return ret;
+            constexpr T operator()(Iter begin, Iter end, P &&... params)
+            noexcept(noexcept(construct<void, fixed_container, Iter, P...>{}(detail::declval<Iter &&>(), detail::declval<Iter &&>(), detail::declval<P &&>()...)))
+            {
+                fixed_container ret = construct<void, fixed_container, Iter, P...>{}(static_cast<Iter &&>(begin), static_cast<Iter &&>(end), static_cast<P &&>(params)...);
+                // Note that we intentionally `reinterpret_cast`, rather than memcpy-ing into the proper type.
+                // That's because the container might remember its own address.
+                struct BETTER_INIT_ALLOCATOR_HACK_MAY_ALIAS aliased_type {T value;};
+                return reinterpret_cast<aliased_type &&>(ret).value;
             }
         };
     }
