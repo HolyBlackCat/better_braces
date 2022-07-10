@@ -396,22 +396,25 @@ namespace better_init
             // `T` must be non-final, since we're going to inherit from it.
             // We could work around final allocators by making a member and forwarding a bunch of calls to it, but that's too much work.
             // Also `T` can't be a specialization of our `fixed_allocator<T>`.
-            template <typename T, typename = void>
+            template <typename T, typename = void, typename = void>
             struct is_broken_allocator : std::false_type {};
             template <typename T>
-            struct is_broken_allocator<T, decltype(
-                std::enable_if_t<
-                    compiler_has_broken_construct_at &&
-                    !std::is_final_v<T> &&
-                    !is_fixed_allocator<std::remove_cvref_t<T>>::value
-                >(),
-                void(declval<typename T::value_type>()),
-                void(declval<T &>().deallocate(declval<T &>().allocate(size_t{}), size_t{})),
+            struct is_broken_allocator<T,
+                decltype(
+                    std::enable_if_t<
+                        compiler_has_broken_construct_at &&
+                        !std::is_final_v<T> &&
+                        !is_fixed_allocator<std::remove_cvref_t<T>>::value
+                    >(),
+                    void(declval<typename T::value_type>()),
+                    void(declval<T &>().deallocate(declval<T &>().allocate(size_t{}), size_t{}))
+                ),
                 // Check this last, because `std::allocator_traits` are not SFINAE-friendly to non-allocators.
+                // This is in a separate template parameter, because GCC doesn't abort early enough otherwise.
                 std::enable_if_t<
                     std::is_same_v<typename std::allocator_traits<T>::pointer, typename std::allocator_traits<T>::value_type *>
-                >()
-            )> : std::true_type {};
+                >
+            > : std::true_type {};
 
             // Whether `T` has an allocator template argument, satisfying `is_broken_allocator`.
             template <typename T, typename = void>
