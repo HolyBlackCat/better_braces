@@ -91,7 +91,9 @@ struct IteratorCategoryChecker
     template <typename U>
     IteratorCategoryChecker(U, U)
     {
+        #if __cplusplus >= 202002
         static_assert(std::random_access_iterator<U>);
+        #endif
         static_assert(std::is_same_v<typename std::iterator_traits<U>::iterator_category, std::random_access_iterator_tag>);
     }
 };

@@ -91,9 +91,22 @@ namespace better_init
 #include BETTER_INIT_CONFIG
 #endif
 
-// Lets you change the identifier used for out initializer lists.
+// Lets you change the identifier used for our initializer lists.
 #ifndef BETTER_INIT_IDENTIFIER
 #define BETTER_INIT_IDENTIFIER init
+#endif
+
+// Whether `std::iterator_traits` can guess the various iterator typedefs. This is a C++20 feature.
+// If this is false, we're forced to include `<iterator>` to specify `std::random_access_iterator_tag`.
+#ifndef BETTER_INIT_SMART_ITERATOR_TRAITS
+#if __cplusplus >= 202002
+#define BETTER_INIT_SMART_ITERATOR_TRAITS 1
+#else
+#define BETTER_INIT_SMART_ITERATOR_TRAITS 0
+#endif
+#endif
+#if !BETTER_INIT_SMART_ITERATOR_TRAITS
+#include <iterator>
 #endif
 
 // MSVC's `std::construct_at()` has a broken SFINAE condition, interfering with construction of non-movable objects.
@@ -106,6 +119,9 @@ namespace better_init
 #else
 #define BETTER_INIT_ALLOCATOR_HACK 0
 #endif
+#endif
+#if BETTER_INIT_ALLOCATOR_HACK > 0 && __cplusplus < 202002
+#error BETTER_INIT_ALLOCATOR_HACK is only needed in C++20 and newer.
 #endif
 // When `BETTER_INIT_ALLOCATOR_HACK` is enabled, we need a 'may alias' attribute to `reinterpret_cast` safely.
 #ifndef BETTER_INIT_ALLOCATOR_HACK_MAY_ALIAS
@@ -207,10 +223,12 @@ namespace better_init
             // It's tempting to put `void` or some broken type here, to prevent extracting values from the range, which we don't want.
             // But that causes problems, and just `Reference` is enough, since it's non-copyable anyway.
             using value_type = Reference<T>;
-            // using iterator_category = std::random_access_iterator_tag;
-            // using reference = Reference<T>;
-            // using pointer = void;
-            // using difference_type = detail::ptrdiff_t;
+            #if !BETTER_INIT_SMART_ITERATOR_TRAITS
+            using iterator_category = std::random_access_iterator_tag;
+            using reference = Reference<T>;
+            using pointer = void;
+            using difference_type = detail::ptrdiff_t;
+            #endif
 
             constexpr Iterator() noexcept {}
 
@@ -456,25 +474,28 @@ namespace better_init
                 using value_type = typename std::allocator_traits<Base>::value_type;
                 using pointer = typename std::allocator_traits<Base>::pointer;
 
-                // Override `construct()` to do the right thing.
-                template <typename ...P>
-                constexpr void construct(pointer ptr, P &&... params)
-                noexcept(noexcept(construct_low(should_wrap_construction<void, Base, P...>{}, ptr, static_cast<P &&>(params)...)))
-                {
-                    construct_low(should_wrap_construction<void, Base, P...>{}, ptr, static_cast<P &&>(params)...);
-                }
-
+                // This is called by `construct()` if no workaround is needed.
+                // Interestingly, clang complains if those are defined below `construct()`. Probably because they're mentioned in its `noexcept` specification.
                 template <typename ...P>
                 constexpr void construct_low(std::false_type, pointer &ptr, P &&... params)
                 noexcept(noexcept(std::allocator_traits<Base>::construct(static_cast<Base &>(*this), static_cast<pointer &&>(ptr), static_cast<P &&>(params)...)))
                 {
                     std::allocator_traits<Base>::construct(static_cast<Base &>(*this), static_cast<pointer &&>(ptr), static_cast<P &&>(params)...);
                 }
+                // This is called by `construct()` when the workaround is needed.
                 template <typename ...P>
                 constexpr void construct_low(std::true_type, pointer &ptr, P &&... params)
                 noexcept(noexcept(::new(ptr) value_type(static_cast<P &&>(params)...)))
                 {
                     ::new(ptr) value_type(static_cast<P &&>(params)...);
+                }
+
+                // Override `construct()` to do the right thing.
+                template <typename ...P>
+                constexpr void construct(pointer ptr, P &&... params)
+                noexcept(noexcept(construct_low(should_wrap_construction<void, Base, P...>{}, ptr, static_cast<P &&>(params)...)))
+                {
+                    construct_low(should_wrap_construction<void, Base, P...>{}, ptr, static_cast<P &&>(params)...);
                 }
             };
         }

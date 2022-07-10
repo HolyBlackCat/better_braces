@@ -17,7 +17,10 @@ $(if $(COMPILER),,$(error Unable to detect compilers, set `COMPILER=??` to a spa
 # C++ standards to test. Override this with a subset of standards if you want to.
 STANDARD := 20 17 14 11
 
-CXXFLAGS := -Iinclude -g -pedantic-errors -Wall -Wextra -Wdeprecated -Wextra-semi
+CXXFLAGS_DEFAULT := -Iinclude -g -pedantic-errors -Wall -Wextra -Wdeprecated -Wextra-semi
+CXXFLAGS :=
+override CXXFLAGS += $(CXXFLAGS_DEFAULT)
+
 SRC := tests.cpp
 
 .PHONY: tests
