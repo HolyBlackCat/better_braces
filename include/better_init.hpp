@@ -147,7 +147,7 @@ namespace better_init
 // We work around it by `reinterpret_cast`ing to a container with a modified allocator.
 // 0 = disable hack, 1 = conditionally enable if the bug is detected, 2 = always enable (for testing).
 #ifndef BETTER_INIT_ALLOCATOR_HACK
-#ifdef _MSC_VER
+#if defined(_MSC_VER) && BETTER_INIT_CXX_STANDARD >= 20
 #define BETTER_INIT_ALLOCATOR_HACK 1
 #else
 #define BETTER_INIT_ALLOCATOR_HACK 0
@@ -197,6 +197,15 @@ namespace better_init
             return true;
         }
 
+        // This would be a lambda deep inside Reference, but constexpr lambdas are a C++17 feature.
+        // `T` is the desired type, `U` is a forwarding reference type that `ptr` points to.
+        template <typename T, typename U>
+        constexpr T cast_elem_pointer(void *ptr)
+        {
+            // Don't want to include `<utility>` for `std::forward`.
+            return T(static_cast<U &&>(*reinterpret_cast<std::remove_reference_t<U> *>(ptr)));
+        }
+
         // Whether `T` is constructible from a pair of `Iter`s, possibly with extra arguments.
         template <typename Void, typename T, typename Iter, typename ...P>
         struct constructible_from_iters_helper : std::false_type {};
@@ -233,14 +242,6 @@ namespace better_init
 
             constexpr Reference() {}
 
-            // This would be a lambda, but constexpr lambdas are a C++17 feature.
-            template <typename U>
-            static constexpr T use_element(void *ptr)
-            {
-                // Don't want to include `<utility>` for `std::forward`.
-                return T(static_cast<U &&>(*reinterpret_cast<std::remove_reference_t<U> *>(ptr)));
-            }
-
           public:
             // Non-copyable.
             // The list creates and owns all its references, and exposes actual references to them.
@@ -257,7 +258,7 @@ namespace better_init
             template <typename U = T, std::enable_if_t<detail::dependent_value<U, sizeof...(P) != 0>::value, int> = 0>
             constexpr operator T() const noexcept(can_nothrow_initialize_elem<T>)
             {
-                constexpr T (*lambdas[])(void *) = {+use_element<P>...};
+                constexpr T (*lambdas[])(void *) = {detail::cast_elem_pointer<T, P>...};
                 return lambdas[index](target);
             }
         };
@@ -345,10 +346,10 @@ namespace better_init
         };
 
         // Could use `std::array`, but want to use less headers.
-        // I know that `[[no_unique_address]]` is disabled in MSVC for now and they use a different attribute, but don't care because there are no other members here.
+        // Could use `[[no_unique_address]]`, but it's our only member variable anyway.
         // Can't store `Reference`s here directly, because we can't use a templated `operator T` in our elements,
         // because it doesn't work correctly on MSVC (but not on GCC and Clang).
-        [[no_unique_address]] std::conditional_t<sizeof...(P) == 0, detail::empty, void *[sizeof...(P) + (sizeof...(P) == 0)]> elems;
+        std::conditional_t<sizeof...(P) == 0, detail::empty, void *[sizeof...(P) + (sizeof...(P) == 0)]> elems;
 
       public:
         // Whether this list can be used to initialize a range type `T`, with extra constructor parameters `P...`.
