@@ -34,9 +34,9 @@
 #endif
 
 // CONTAINER REQUIREMENTS
-// All of those can be worked around by specializing `better_init::custom::range_traits` for your container.
-// * Must have a constructor from two iterators.
+// All of those can be worked around by specializing `better_init::custom::??` for your container.
 // * Must have a `::value_type` typedef with the element type ()
+// * Must have a constructor from two iterators.
 
 namespace better_init
 {
@@ -96,10 +96,32 @@ namespace better_init
 #define BETTER_INIT_IDENTIFIER init
 #endif
 
+// The C++ standard version to assume.
+// First, the raw date number.
+#ifdef _MSC_VER
+#define BETTER_INIT_CXX_STANDARD_DATE _MSVC_LANG // D:<
+#else
+#define BETTER_INIT_CXX_STANDARD_DATE __cplusplus
+#endif
+// Then the actual year number.
+#ifndef BETTER_INIT_CXX_STANDARD
+#if BETTER_INIT_CXX_STANDARD_DATE >= 202002
+#define BETTER_INIT_CXX_STANDARD 20
+#elif BETTER_INIT_CXX_STANDARD_DATE >= 201703
+#define BETTER_INIT_CXX_STANDARD 17
+#elif BETTER_INIT_CXX_STANDARD_DATE >= 201402
+#define BETTER_INIT_CXX_STANDARD 14
+#elif BETTER_INIT_CXX_STANDARD_DATE >= 201103
+#define BETTER_INIT_CXX_STANDARD 11
+#else
+#error C++98 is not supported.
+#endif
+#endif
+
 // Whether `std::iterator_traits` can guess the various iterator typedefs. This is a C++20 feature.
 // If this is false, we're forced to include `<iterator>` to specify `std::random_access_iterator_tag`.
 #ifndef BETTER_INIT_SMART_ITERATOR_TRAITS
-#if __cplusplus >= 202002
+#if BETTER_INIT_CXX_STANDARD >= 20
 #define BETTER_INIT_SMART_ITERATOR_TRAITS 1
 #else
 #define BETTER_INIT_SMART_ITERATOR_TRAITS 0
@@ -113,7 +135,7 @@ namespace better_init
 // Braces require CTAD to work.
 // Note that here and elsewhere in C++, elements in braces are evaluated left-to-right, while in parentheses the evaluation order is unspecified.
 #ifndef BETTER_INIT_ALLOW_BRACES
-#if __cplusplus >= 201703
+#if BETTER_INIT_CXX_STANDARD >= 17
 #define BETTER_INIT_ALLOW_BRACES 1
 #else
 #define BETTER_INIT_ALLOW_BRACES 0
@@ -131,7 +153,7 @@ namespace better_init
 #define BETTER_INIT_ALLOCATOR_HACK 0
 #endif
 #endif
-#if BETTER_INIT_ALLOCATOR_HACK > 0 && __cplusplus < 202002
+#if BETTER_INIT_ALLOCATOR_HACK > 0 && BETTER_INIT_CXX_STANDARD < 20
 #error BETTER_INIT_ALLOCATOR_HACK is only needed in C++20 and newer.
 #endif
 // When `BETTER_INIT_ALLOCATOR_HACK` is enabled, we need a 'may alias' attribute to `reinterpret_cast` safely.

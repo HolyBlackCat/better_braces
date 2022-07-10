@@ -99,7 +99,7 @@ struct IteratorCategoryChecker
     template <typename U>
     IteratorCategoryChecker(U, U)
     {
-        #if __cplusplus >= 202002
+        #if BETTER_INIT_CXX_STANDARD >= 20
         static_assert(std::random_access_iterator<U>, "The iterator concept wasn't satisfied.");
         #endif
         static_assert(std::is_same<typename std::iterator_traits<U>::iterator_category, std::random_access_iterator_tag>::value, "Wrong iterator category.");
