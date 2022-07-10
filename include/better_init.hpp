@@ -53,7 +53,7 @@ namespace better_init
         using size_t = decltype(sizeof(int));
         using ptrdiff_t = decltype((int *)nullptr - (int *)nullptr);
         using uintptr_t = size_t;
-        static_assert(sizeof(uintptr_t) == sizeof(void *));
+        static_assert(sizeof(uintptr_t) == sizeof(void *), "Internal error: Incorrect `uintptr_t` typedef, fix it.");
 
         template <typename T>
         T &&declval() noexcept; // Not defined.
@@ -77,8 +77,8 @@ namespace better_init
         template <typename Void, typename T, typename Iter, typename ...P>
         struct construct
         {
-            template <typename TT = T, std::enable_if_t<std::is_constructible_v<TT, Iter, Iter, P...>, int> = 0>
-            constexpr T operator()(Iter begin, Iter end, P &&... params) noexcept(std::is_nothrow_constructible_v<T, Iter, Iter, P...>)
+            template <typename TT = T, std::enable_if_t<std::is_constructible<TT, Iter, Iter, P...>::value, int> = 0>
+            constexpr T operator()(Iter begin, Iter end, P &&... params) noexcept(std::is_nothrow_constructible<T, Iter, Iter, P...>::value)
             {
                 // Don't want to include `<utility>` for `std::move` or `std::forward`.
                 return T(static_cast<Iter &&>(begin), static_cast<Iter &&>(end), static_cast<P &&>(params)...);
@@ -107,6 +107,17 @@ namespace better_init
 #endif
 #if !BETTER_INIT_SMART_ITERATOR_TRAITS
 #include <iterator>
+#endif
+
+// Whether to allow braces: `init{...}`. Parentheses are always allowed: `init(...)`.
+// Braces require CTAD to work.
+// Note that here and elsewhere in C++, elements in braces are evaluated left-to-right, while in parentheses the evaluation order is unspecified.
+#ifndef BETTER_INIT_ALLOW_BRACES
+#if __cplusplus >= 201703
+#define BETTER_INIT_ALLOW_BRACES 1
+#else
+#define BETTER_INIT_ALLOW_BRACES 0
+#endif
 #endif
 
 // MSVC's `std::construct_at()` has a broken SFINAE condition, interfering with construction of non-movable objects.
@@ -149,37 +160,64 @@ namespace better_init
 
         [[noreturn]] inline void abort() {BETTER_INIT_ABORT}
 
+        // A boolean, artifically dependent on a type.
+        template <typename T, bool X>
+        struct dependent_value : std::integral_constant<bool, X> {};
+
+        // Not using fold expressions avoid depending on C++17.
+        constexpr bool all_of(std::initializer_list<bool> values)
+        {
+            for (bool x : values)
+            {
+                if (!x)
+                    return false;
+            }
+            return true;
+        }
+
         // Whether `T` is constructible from a pair of `Iter`s, possibly with extra arguments.
         template <typename Void, typename T, typename Iter, typename ...P>
         struct constructible_from_iters_helper : std::false_type {};
         template <typename T, typename Iter, typename ...P>
         struct constructible_from_iters_helper<decltype(void(custom::construct<void, T, Iter, P...>{}(declval<Iter &&>(), declval<Iter &&>(), declval<P &&>()...))), T, Iter, P...> : std::true_type {};
         template <typename T, typename Iter, typename ...P>
-        inline constexpr bool constructible_from_iters = constructible_from_iters_helper<void, T, Iter, P...>::value;
+        struct constructible_from_iters : constructible_from_iters_helper<void, T, Iter, P...> {};
 
         template <typename T, typename Iter, typename ...P>
-        struct nothrow_constructible_from_iters_helper : std::integral_constant<bool, noexcept(custom::construct<void, T, Iter, P...>{}(declval<Iter &&>(), declval<Iter &&>(), declval<P &&>()...))> {};
-        template <typename T, typename Iter, typename ...P>
-        inline constexpr bool nothrow_constructible_from_iters = nothrow_constructible_from_iters_helper<T, Iter, P...>::value;
+        struct nothrow_constructible_from_iters : std::integral_constant<bool, noexcept(custom::construct<void, T, Iter, P...>{}(declval<Iter &&>(), declval<Iter &&>(), declval<P &&>()...))> {};
     }
 
+    #if BETTER_INIT_ALLOW_BRACES
+    #define DETAIL_BETTER_INIT_CLASS_NAME BETTER_INIT_IDENTIFIER
+    #else
+    #define DETAIL_BETTER_INIT_CLASS_NAME helper
+    #endif
+
     template <typename ...P>
-    class BETTER_INIT_IDENTIFIER
+    class [[nodiscard]] DETAIL_BETTER_INIT_CLASS_NAME
     {
       public:
         // Whether this list can be used to initialize a range of `T`s.
-        template <typename T> static constexpr bool can_initialize_elem         = (std::is_constructible_v        <T, P &&> && ...);
-        template <typename T> static constexpr bool can_nothrow_initialize_elem = (std::is_nothrow_constructible_v<T, P &&> && ...);
+        template <typename T> static constexpr bool can_initialize_elem         = detail::all_of({std::is_constructible        <T, P &&>::value...});
+        template <typename T> static constexpr bool can_nothrow_initialize_elem = detail::all_of({std::is_nothrow_constructible<T, P &&>::value...});
 
       private:
         template <typename T>
         class Reference
         {
-            friend BETTER_INIT_IDENTIFIER;
+            friend DETAIL_BETTER_INIT_CLASS_NAME;
             void *target = nullptr;
             detail::size_t index = 0;
 
             constexpr Reference() {}
+
+            // This would be a lambda, but constexpr lambdas are a C++17 feature.
+            template <typename U>
+            static constexpr T use_element(void *ptr)
+            {
+                // Don't want to include `<utility>` for `std::forward`.
+                return T(static_cast<U &&>(*reinterpret_cast<std::remove_reference_t<U> *>(ptr)));
+            }
 
           public:
             // Non-copyable.
@@ -188,33 +226,24 @@ namespace better_init
             Reference(const Reference &) = delete;
             Reference &operator=(const Reference &) = delete;
 
+            template <typename U = T, std::enable_if_t<detail::dependent_value<U, sizeof...(P) == 0>::value, int> = 0>
             constexpr operator T() const noexcept(can_nothrow_initialize_elem<T>)
             {
-                if constexpr (sizeof...(P) == 0)
-                {
-                    // Note: This is intentionally not a SFINAE check nor a `static_assert`, to support init from empty lists.
-                    detail::abort();
-                }
-                else
-                {
-                    constexpr T (*lambdas[])(void *) = {
-                        +[](void *ptr) -> T
-                        {
-                            // Don't want to include `<utility>` for `std::forward`.
-                            return T(static_cast<P &&>(*reinterpret_cast<std::remove_reference_t<P> *>(ptr)));
-                        }...
-                    };
-                    return lambdas[index](target);
-                }
+                // Note: This is intentionally not a SFINAE check nor a `static_assert`, to support init from empty lists.
+                detail::abort();
             }
-
-            // Would also add `operator T &&`, but it confuses GCC (note, not libstdc++).
+            template <typename U = T, std::enable_if_t<detail::dependent_value<U, sizeof...(P) != 0>::value, int> = 0>
+            constexpr operator T() const noexcept(can_nothrow_initialize_elem<T>)
+            {
+                constexpr T (*lambdas[])(void *) = {+use_element<P>...};
+                return lambdas[index](target);
+            }
         };
 
         template <typename T>
         class Iterator
         {
-            friend class BETTER_INIT_IDENTIFIER;
+            friend class DETAIL_BETTER_INIT_CLASS_NAME;
             const Reference<T> *ref = nullptr;
 
           public:
@@ -301,11 +330,11 @@ namespace better_init
 
       public:
         // Whether this list can be used to initialize a range type `T`, with extra constructor parameters `P...`.
-        template <typename T, typename ...Q> static constexpr bool can_initialize_range         = detail::constructible_from_iters        <T, Iterator<typename custom::element_type<T>::type>, Q...> && can_initialize_elem        <typename custom::element_type<T>::type>;
-        template <typename T, typename ...Q> static constexpr bool can_nothrow_initialize_range = detail::nothrow_constructible_from_iters<T, Iterator<typename custom::element_type<T>::type>, Q...> && can_nothrow_initialize_elem<typename custom::element_type<T>::type>;
+        template <typename T, typename ...Q> static constexpr bool can_initialize_range         = detail::constructible_from_iters        <T, Iterator<typename custom::element_type<T>::type>, Q...>::value && can_initialize_elem        <typename custom::element_type<T>::type>;
+        template <typename T, typename ...Q> static constexpr bool can_nothrow_initialize_range = detail::nothrow_constructible_from_iters<T, Iterator<typename custom::element_type<T>::type>, Q...>::value && can_nothrow_initialize_elem<typename custom::element_type<T>::type>;
 
         // The constructor from a braced (or parenthesized) list.
-        [[nodiscard]] constexpr BETTER_INIT_IDENTIFIER(P &&... params) noexcept
+        [[nodiscard]] constexpr DETAIL_BETTER_INIT_CLASS_NAME(P &&... params) noexcept
             : elems{const_cast<void *>(static_cast<const void *>(&params))...}
         {}
 
@@ -316,18 +345,25 @@ namespace better_init
         [[nodiscard]] constexpr operator T() const && noexcept(can_nothrow_initialize_range<T>)
         {
             // Don't want to include `<utility>` for `std::move`.
-            return static_cast<const BETTER_INIT_IDENTIFIER &&>(*this).to<T>();
+            return static_cast<const DETAIL_BETTER_INIT_CLASS_NAME &&>(*this).to<T>();
         }
         // Explicit conversion to a container.
         template <typename T, std::enable_if_t<can_initialize_range<T>, int> = 0>
         [[nodiscard]] constexpr explicit operator T() const && noexcept(can_nothrow_initialize_range<T>)
         {
             // Don't want to include `<utility>` for `std::move`.
-            return static_cast<const BETTER_INIT_IDENTIFIER &&>(*this).to<T>();
+            return static_cast<const DETAIL_BETTER_INIT_CLASS_NAME &&>(*this).to<T>();
         }
 
         // Conversion to a container with extra arguments (such as an allocator).
-        template <typename T, typename ...Q, std::enable_if_t<can_initialize_range<T, Q...>, int> = 0>
+        template <typename T, typename ...Q, std::enable_if_t<can_initialize_range<T, Q...> && sizeof...(P) == 0, int> = 0>
+        [[nodiscard]] constexpr T to(Q &&... extra_args) const && noexcept(can_nothrow_initialize_range<T, Q...>)
+        {
+            using elem_type = typename custom::element_type<T>::type;
+            return custom::construct<void, T, Iterator<elem_type>, Q...>{}(Iterator<elem_type>{}, Iterator<elem_type>{}, static_cast<Q &&>(extra_args)...);
+        }
+        // Conversion to a container with extra arguments (such as an allocator).
+        template <typename T, typename ...Q, std::enable_if_t<can_initialize_range<T, Q...> && sizeof...(P) != 0, int> = 0>
         [[nodiscard]] constexpr T to(Q &&... extra_args) const && noexcept(can_nothrow_initialize_range<T, Q...>)
         {
             using elem_type = typename custom::element_type<T>::type;
@@ -335,27 +371,33 @@ namespace better_init
             // Could use `std::array`, but want to use less headers.
             // Must store `Reference`s here, because `std::random_access_iterator` requires `operator[]` to return the same type as `operator*`,
             // and `LegacyForwardIterator` requires `operator*` to return an actual reference. If we don't have those here, we don't have anything for the references to point to.
-            std::conditional_t<sizeof...(P) == 0, detail::empty, Reference<elem_type>[sizeof...(P) + (sizeof...(P) == 0)]> refs;
-            Iterator<elem_type> begin, end;
-
-            if constexpr (sizeof...(P) > 0)
+            Reference<elem_type> refs[sizeof...(P)];
+            for (detail::size_t i = 0; i < sizeof...(P); i++)
             {
-                for (detail::size_t i = 0; i < sizeof...(P); i++)
-                {
-                    refs[i].target = elems[i];
-                    refs[i].index = i;
-                }
-
-                begin.ref = refs;
-                end.ref = refs + sizeof...(P);
+                refs[i].target = elems[i];
+                refs[i].index = i;
             }
+
+            Iterator<elem_type> begin, end;
+            begin.ref = refs;
+            end.ref = refs + sizeof...(P);
 
             return custom::construct<void, T, Iterator<elem_type>, Q...>{}(begin, end, static_cast<Q &&>(extra_args)...);
         }
     };
 
+    #if BETTER_INIT_ALLOW_BRACES
+    // A deduction guide for the list class.
     template <typename ...P>
-    BETTER_INIT_IDENTIFIER(P &&...) -> BETTER_INIT_IDENTIFIER<P...>;
+    DETAIL_BETTER_INIT_CLASS_NAME(P &&...) -> DETAIL_BETTER_INIT_CLASS_NAME<P...>;
+    #else
+    // A helper function to construct the list class.
+    template <typename ...P>
+    [[nodiscard]] constexpr DETAIL_BETTER_INIT_CLASS_NAME<P...> BETTER_INIT_IDENTIFIER(P &&... params) noexcept
+    {
+        return DETAIL_BETTER_INIT_CLASS_NAME<P...>(static_cast<P &&>(params)...);
+    }
+    #endif
 }
 
 using better_init::BETTER_INIT_IDENTIFIER;
