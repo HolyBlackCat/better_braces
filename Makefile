@@ -17,7 +17,7 @@ $(if $(COMPILER),,$(error Unable to detect compilers, set `COMPILER=??` to a spa
 # C++ standards to test. Override this with a subset of standards if you want to.
 STANDARD := 20 17 14 11
 
-CXXFLAGS_DEFAULT := -Iinclude -g -pedantic-errors -Wall -Wextra -Wdeprecated -Wextra-semi
+CXXFLAGS_DEFAULT := -Iinclude -g -pedantic-errors -Wall -Wextra -Wdeprecated -Wextra-semi -ftemplate-backtrace-limit=0
 CXXFLAGS :=
 override CXXFLAGS += $(CXXFLAGS_DEFAULT)
 
@@ -33,7 +33,7 @@ else ifneq ($(words $(OPTIMIZE)),1)
 	@true $(foreach x,$(OPTIMIZE),&& make --no-print-directory OPTIMIZE=$x)
 else
 	@printf "%-11s C++%-3s %-15s...  " $(COMPILER) $(STANDARD) $(OPTIMIZE)
-	@$(CXX) $(SRC) -o tests $(CXXFLAGS) $(OPTIM_FLAGS_$(OPTIMIZE)) -std=c++$(STANDARD) && ./tests
+	@$(COMPILER) $(SRC) -o tests $(CXXFLAGS) $(OPTIM_FLAGS_$(OPTIMIZE)) -std=c++$(STANDARD) && ./tests
 endif
 
 .PHONY: commands
