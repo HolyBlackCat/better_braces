@@ -1,0 +1,39 @@
+{
+    // Useful breakpoints:
+    // * UBSAN errors: __ubsan::ScopedReport::~ScopedReport
+    // * ASAN errors: __asan_report_error
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug (LLDB)",
+            "type": "lldb",
+            "request": "launch",
+            "program": "${workspaceRoot}/tests",
+            "cwd": "${workspaceRoot}",
+            "internalConsoleOptions": "openOnSessionStart",
+            "initCommands": [
+            ],
+        },
+        {
+            "name": "Debug (GDB)",
+            "type": "gdb",
+            "request": "launch",
+            "target": "${workspaceRoot}/tests",
+            // The `"terminal": ""` part creates a separate terminal on Windows. We need it to be able to Ctrl+C it to update the breakpoints after placing them.
+            // On Linux breakpoints work properly without this trick. And also, on Linux it causes a new terminal to spawn each time you debug, which is bad, so we don't use it.
+            "windows": {"terminal": ""},
+            "cwd": "${workspaceRoot}",
+            "valuesFormatting": "prettyPrinters",
+            "internalConsoleOptions": "openOnSessionStart",
+            "autorun": [
+                // Catch exceptions by default.
+                "catch throw",
+                // Register pretty-printers.
+                // Normally they are auto-loaded, but it doesn't work when libstdc++'s `.so` is in a non-default path.
+                // Following force-loads the printers, but the command is gcc version-dependent.
+                // NOTE: If GDB says `ModuleNotFoundError: No module named 'libstdcxx'`, then you need to update the path given to `sys.path.insert()`.
+                "python import sys; sys.path.insert(0, '/usr/share/gcc/python'); from libstdcxx.v6.printers import register_libstdcxx_printers; register_libstdcxx_printers(None)",
+            ],
+        },
+    ]
+}
