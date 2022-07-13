@@ -423,7 +423,8 @@ namespace better_init
         template <typename T, typename ...Q> static constexpr bool can_nothrow_initialize_range = detail::nothrow_constructible_from_iters<T, Iterator<typename custom::element_type<T>::type>, Q...>::value && can_nothrow_initialize_elem<typename custom::element_type<T>::type>;
 
         // The constructor from a braced (or parenthesized) list.
-        BETTER_INIT_NODISCARD constexpr DETAIL_BETTER_INIT_CLASS_NAME(P &&... params) noexcept
+        // No `[[nodiscard]]` because GCC 9 complains. Having it on the entire class should be enough.
+        constexpr DETAIL_BETTER_INIT_CLASS_NAME(P &&... params) noexcept
             : elems{const_cast<void *>(static_cast<const void *>(&params))...}
         {}
 

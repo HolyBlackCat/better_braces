@@ -246,5 +246,8 @@ int main()
         (void)INIT(1, 2, 3).to<ContainerWithForcedArgs>(1, 2, 3);
     }
 
-    std::cout << "OK\n";
+    std::cout << "OK";
+    if (BETTER_INIT_ALLOCATOR_HACK)
+        std::cout << "  (with allocator hack)";
+    std::cout << '\n';
 }

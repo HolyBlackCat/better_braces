@@ -15,7 +15,7 @@ COMPILER := $(sort $(shell bash -c 'compgen -c g++; compgen -c clang++' | grep -
 $(if $(COMPILER),,$(error Unable to detect compilers, set `COMPILER=??` to a space-separated compiler list))
 
 # C++ standards to test. Override this with a subset of standards if you want to.
-STANDARD := 20 17 14 11
+STANDARD := 20 17 14
 
 CXXFLAGS_DEFAULT := -Iinclude -g -pedantic-errors -Wall -Wextra -Wdeprecated -Wextra-semi -ftemplate-backtrace-limit=0
 CXXFLAGS :=
@@ -31,9 +31,11 @@ else ifneq ($(words $(STANDARD)),1)
 	@true $(foreach x,$(STANDARD),&& make --no-print-directory STANDARD=$x)
 else ifneq ($(words $(OPTIMIZE)),1)
 	@true $(foreach x,$(OPTIMIZE),&& make --no-print-directory OPTIMIZE=$x)
-else
+else ifneq ($(shell $(if $(filter g++%,$(COMPILER)),$(COMPILER) -v --help,$(COMPILER) -std=c++0 -xc++ /dev/null) 2>&1 | grep -- -std=c++$(STANDARD)),)
 	@printf "%-11s C++%-3s %-15s...  " $(COMPILER) $(STANDARD) $(OPTIMIZE)
 	@$(COMPILER) $(SRC) -o tests $(CXXFLAGS) $(OPTIM_FLAGS_$(OPTIMIZE)) -std=c++$(STANDARD) && ./tests
+else
+	@true # Unsupported standard version for this compiler.
 endif
 
 .PHONY: commands
