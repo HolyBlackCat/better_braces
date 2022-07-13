@@ -17,6 +17,9 @@ $(if $(COMPILER),,$(error Unable to detect compilers, set `COMPILER=??` to a spa
 # C++ standards to test. Override this with a subset of standards if you want to.
 STANDARD := 20 17 14
 
+# C++ standard libraries to test.
+STDLIB := libstdc++ libc++
+
 CXXFLAGS_DEFAULT := -Iinclude -g -pedantic-errors -Wall -Wextra -Wdeprecated -Wextra-semi -ftemplate-backtrace-limit=0
 CXXFLAGS :=
 override CXXFLAGS += $(CXXFLAGS_DEFAULT)
@@ -29,13 +32,17 @@ ifneq ($(words $(COMPILER)),1)
 	@true $(foreach x,$(COMPILER),&& make --no-print-directory COMPILER=$x)
 else ifneq ($(words $(STANDARD)),1)
 	@true $(foreach x,$(STANDARD),&& make --no-print-directory STANDARD=$x)
+else ifneq ($(words $(STDLIB)),1)
+	@true $(foreach x,$(STDLIB),&& make --no-print-directory STDLIB=$x)
 else ifneq ($(words $(OPTIMIZE)),1)
 	@true $(foreach x,$(OPTIMIZE),&& make --no-print-directory OPTIMIZE=$x)
-else ifneq ($(shell $(if $(filter g++%,$(COMPILER)),$(COMPILER) -v --help,$(COMPILER) -std=c++0 -xc++ /dev/null) 2>&1 | grep -- -std=c++$(STANDARD)),)
-	@printf "%-11s C++%-3s %-15s...  " $(COMPILER) $(STANDARD) $(OPTIMIZE)
-	@$(COMPILER) $(SRC) -o tests $(CXXFLAGS) $(OPTIM_FLAGS_$(OPTIMIZE)) -std=c++$(STANDARD) && ./tests
-else
+else ifneq ($(and $(filter g++%,$(COMPILER)),$(filter libc++,$(STDLIB))),)
+	@true # Unsupported C++ standard library for this compiler.
+else ifeq ($(shell $(if $(filter g++%,$(COMPILER)),$(COMPILER) -v --help,$(COMPILER) -std=c++0 -xc++ /dev/null) 2>&1 | grep 'c++$(STANDARD)'),)
 	@true # Unsupported standard version for this compiler.
+else
+	@printf "%-11s C++%-3s %-10s %-15s...  " $(COMPILER) $(STANDARD) $(STDLIB) $(OPTIMIZE)
+	@$(COMPILER) $(SRC) -o tests $(CXXFLAGS) $(OPTIM_FLAGS_$(OPTIMIZE)) -std=c++$(STANDARD) -stdlib=$(STDLIB) && ./tests
 endif
 
 .PHONY: commands

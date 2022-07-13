@@ -78,7 +78,7 @@ namespace better_init
         struct construct
         {
             template <typename TT = T, std::enable_if_t<std::is_constructible<TT, Iter, Iter, P...>::value, int> = 0>
-            constexpr T operator()(Iter begin, Iter end, P &&... params) noexcept(std::is_nothrow_constructible<T, Iter, Iter, P...>::value)
+            constexpr T operator()(Iter begin, Iter end, P &&... params) const noexcept(std::is_nothrow_constructible<T, Iter, Iter, P...>::value)
             {
                 // Don't want to include `<utility>` for `std::move` or `std::forward`.
                 return T(static_cast<Iter &&>(begin), static_cast<Iter &&>(end), static_cast<P &&>(params)...);
@@ -611,7 +611,7 @@ namespace better_init
 
             using fixed_container = typename detail::allocator_hack::substitute_allocator<T>::type;
 
-            constexpr T operator()(Iter begin, Iter end, P &&... params)
+            constexpr T operator()(Iter begin, Iter end, P &&... params) const
             noexcept(noexcept(construct<void, fixed_container, Iter, P...>{}(detail::declval<Iter &&>(), detail::declval<Iter &&>(), detail::declval<P &&>()...)))
             {
                 // Note that we intentionally `reinterpret_cast` (which requires `may_alias` and all that),
