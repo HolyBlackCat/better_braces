@@ -1,6 +1,10 @@
+#ifndef BETTER_INIT_CONFIG // This lets us run tests on godbolt easier, see below.
 #include "better_init.hpp"
-// For https://gcc.godbolt.org:
+#endif
+
+// To run on https://gcc.godbolt.org, copy-paste following:
 // #include <https://raw.githubusercontent.com/HolyBlackCat/better_init/master/include/better_init.hpp>
+// #include <https://raw.githubusercontent.com/HolyBlackCat/better_init/master/include/tests.cpp>
 
 #include <atomic>
 #include <cstddef>
