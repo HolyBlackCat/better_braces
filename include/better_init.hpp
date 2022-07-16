@@ -127,7 +127,7 @@ namespace better_init
 #endif
 #endif
 
-// Whether `std::iterator_traits` can guess the various iterator typedefs. This is a C++20 feature.
+// Whether `std::iterator_traits` can guess the iterator category and various typedefs. This is a C++20 feature.
 // If this is false, we're forced to include `<iterator>` to specify `std::random_access_iterator_tag`.
 #ifndef BETTER_INIT_SMART_ITERATOR_TRAITS
 #if BETTER_INIT_CXX_STANDARD >= 20
