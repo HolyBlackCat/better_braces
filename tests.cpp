@@ -251,7 +251,7 @@ int main()
     }
 
     std::cout << "OK";
-    if (BETTER_INIT_ALLOCATOR_HACK)
+    if (BETTER_INIT_CONTAINER_HACK)
         std::cout << "  (with allocator hack)";
     std::cout << '\n';
 }
