@@ -42,7 +42,7 @@ else ifeq ($(shell $(if $(filter g++%,$(COMPILER)),$(COMPILER) -v --help,$(COMPI
 	@true # Unsupported standard version for this compiler.
 else
 	@printf "%-11s C++%-3s %-10s %-15s...  " $(COMPILER) $(STANDARD) $(STDLIB) $(OPTIMIZE)
-	@$(COMPILER) $(SRC) -o tests $(CXXFLAGS) $(OPTIM_FLAGS_$(OPTIMIZE)) -std=c++$(STANDARD) -stdlib=$(STDLIB) && ./tests
+	@$(COMPILER) $(SRC) -o tests $(CXXFLAGS) $(OPTIM_FLAGS_$(OPTIMIZE)) -std=c++$(STANDARD) $(if $(filter g++%,$(COMPILER)),,-stdlib=$(STDLIB)) && ./tests
 endif
 
 .PHONY: commands
