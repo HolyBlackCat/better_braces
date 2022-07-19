@@ -111,10 +111,10 @@ namespace better_init
 #define BETTER_INIT_CXX_STANDARD 17
 #elif BETTER_INIT_CXX_STANDARD_DATE >= 201402
 #define BETTER_INIT_CXX_STANDARD 14
-#elif BETTER_INIT_CXX_STANDARD_DATE >= 201103
-#define BETTER_INIT_CXX_STANDARD 11
+// #elif BETTER_INIT_CXX_STANDARD_DATE >= 201103
+// #define BETTER_INIT_CXX_STANDARD 11
 #else
-#error C++98 is not supported.
+#error better_init requires C++14 or newer.
 #endif
 #endif
 
@@ -171,13 +171,12 @@ namespace better_init
 
 // Whether to allow the 'allocator hack', which means creating the container with a modified allocator, then converting it to the original allocator.
 // The modified allocator doesn't rely on copy elision, and constructs the object directly at the correct location.
-// This serves two purposes:
-// * In C++14 and earlier, work around the lack of mandatory copy elision. It allows initialization of containers or non-movable elements,
-//   or faster initialization of containers of movable elements.
-// * In C++20 only in MSVC, work around a bug that causes `std::construct_at` (used by `std::vector` and others) to reject initialization that utilizes the mandatory copy elision.
-//   This is issue https://github.com/microsoft/STL/issues/2620, fixed at June 20, 2022 by commit https://github.com/microsoft/STL/blob/3f203cb0d9bfde929a75eed877c228f88c0c7a46/stl/inc/xutility.
+// We use it only in MSVC, in C++20 mode, to work around a bug that causes `std::construct_at` (used by `std::vector` and others) to reject initialization that utilizes the mandatory copy elision.
+// This is issue https://github.com/microsoft/STL/issues/2620, fixed at June 20, 2022 by commit https://github.com/microsoft/STL/blob/3f203cb0d9bfde929a75eed877c228f88c0c7a46/stl/inc/xutility.
+// In theory, it could also help with the lack of mandatory copy elision pre-C++17, but it doesn't work on libc++ in C++14, because it uses a strict SFINAE e.g. on vector's constructor,
+// which doesn't respect allocator's `consturct()`.
 #ifndef BETTER_INIT_ALLOCATOR_HACK
-#if BETTER_INIT_CXX_STANDARD < 17 || (defined(_MSC_VER) && BETTER_INIT_CXX_STANDARD >= 20)
+#if defined(_MSC_VER) && BETTER_INIT_CXX_STANDARD >= 20
 #define BETTER_INIT_ALLOCATOR_HACK 1
 #else
 #define BETTER_INIT_ALLOCATOR_HACK 0

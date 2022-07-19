@@ -22,6 +22,14 @@
 #define INIT(...) init(__VA_ARGS__)
 #endif
 
+#ifndef TEST_NON_COPYABLE_TYPES
+#if BETTER_INIT_HAVE_MANDATORY_COPY_ELISION || BETTER_INIT_ALLOCATOR_HACK
+#define TEST_NON_COPYABLE_TYPES 1
+#else
+#define TEST_NON_COPYABLE_TYPES 0
+#endif
+#endif
+
 
 #define ASSERT(...) \
     do { \
@@ -218,6 +226,7 @@ int main()
         std::vector<std::unique_ptr<int>> vec2 = INIT();
         ASSERT(vec2.empty());
 
+        #if TEST_NON_COPYABLE_TYPES
         std::vector<std::atomic_int> vec3 = INIT(1, 2, 3);
         ASSERT(vec3.size() == 3);
         ASSERT(vec3[0].load() == 1);
@@ -234,6 +243,7 @@ int main()
         ASSERT(vec5[0].load() == 4);
         ASSERT(vec5[1].load() == 5);
         ASSERT(vec5[2].load() == 6);
+        #endif
     }
 
     { // Implicit-ness of the conversion operator.
