@@ -1,0 +1,23 @@
+name: Tests
+
+on: [push, pull_request]
+
+jobs:
+  Tests:
+    runs-on: ubuntu-22.04
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v3
+    - name: Install packages
+      run: |
+        # Install latest GCC.
+        sudo apt install -y g++-12
+        # Prepare a GCC toolchain dir for Clang. Clang 12 is incompatible with libstdc++ 12, even though it tries to use it.
+        sudo mkdir -p gcc-toolchain-11/include/c++
+        sudo ln -s /usr/include/c++/11 gcc-toolchain-11/include/c++/11
+        sudo mkdir -p gcc-toolchain-11/lib/gcc/x86_64-unknown-linux-gnu
+        sudo ln -s /usr/lib/gcc/x86_64-linux-gnu/11 gcc-toolchain-11/lib/gcc/x86_64-unknown-linux-gnu/11
+    - name: List compilers
+      run: make -pq | grep ^COMPILER
+    - name: Run tests
+      run: make CXXFLAGS_PER_COMPILER='clang++-12=--gcc-toolchain=gcc-toolchain-11'
