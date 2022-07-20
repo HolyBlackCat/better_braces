@@ -12,7 +12,7 @@ $(foreach x,$(OPTIMIZE),$(if $(OPTIM_FLAGS_$x),,$(error Unknown optimization lev
 
 # Compilers to test. If not specified, we find all versions of GCC and Clang in PATH.
 # Note that we only use version-suffixed compilers. The unsufixed compilers should be linked to one of those anyway?
-COMPILER := $(sort $(shell bash -c 'compgen -c g++-; compgen -c clang++-' | grep -Po '^(clan)?g\+\+(-[0-9]+)?(?=.exe)?'))
+COMPILER := $(shell bash -c 'compgen -c g++-; compgen -c clang++-' | grep -Po '^(clan)?g\+\+(-[0-9]+)?(?=.exe)?' | sort -hr -t- -k2 | uniq)
 $(if $(COMPILER),,$(error Unable to detect compilers, set `COMPILER=??` to a space-separated compiler list))
 
 # C++ standards to test. Override this with a subset of standards if you want to.
