@@ -21,3 +21,22 @@ jobs:
       run: make -pq | grep ^COMPILER
     - name: Run tests
       run: make CXXFLAGS_PER_COMPILER='clang++-12=--gcc-toolchain=gcc-toolchain-11'
+  Tests-MSVC:
+    runs-on: windows-latest
+    steps:
+    - name: Setup MSYS2
+      uses: msys2/setup-msys2@v2
+      with:
+        update: true
+        install: make
+        path-type: inherit
+    - name: Checkout
+      uses: actions/checkout@v3
+    - name: Run tests
+      run: |
+        msvc_env_bat_files=( '/c/Program Files'*/'Microsoft Visual Studio'/*/*/'VC/Auxiliary/Build/vcvars64.bat' )
+        echo >run.bat 'call "'"$(cygpath -w "${msvc_env_bat_files[-1]}")"'"'
+        echo >>run.bat 'make COMPILER="cl clang-cl"'
+        cat run.bat
+        cmd /C run.bat
+      shell: msys2 {0}

@@ -2,6 +2,8 @@
 
 **A replacement for `std::initializer_list` that works with non-copyable types.**
 
+[![tests badge](https://github.com/HolyBlackCat/better_init/actions/workflows/tests.yml/badge.svg?branch=master)](https://github.com/HolyBlackCat/better_init/actions?query=branch%3Amaster)
+
 ---
 
 For example, this doesn't work:
@@ -19,7 +21,7 @@ This library provides a workaround:
 std::vector<std::unique_ptr<int>> vec = init{nullptr, std::make_unique<int>(42)};
 ```
 
-Non-movable types are also supported:
+Non-movable types are also supported: (in C++17 and newer)
 ```cpp
 #include <better_init.hpp>
 std::vector<std::atomic_int> vec = init{1, 2, 3};
