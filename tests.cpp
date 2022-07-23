@@ -10,6 +10,7 @@
 #include <cstddef>
 #include <iostream>
 #include <iterator>
+#include <map>
 #include <memory>
 #include <utility>
 #include <vector>
@@ -243,6 +244,23 @@ int main()
         ASSERT(vec5[0].load() == 4);
         ASSERT(vec5[1].load() == 5);
         ASSERT(vec5[2].load() == 6);
+        #endif
+    }
+
+    { // Maps.
+        #if BETTER_INIT_CXX_STANDARD >= 17
+        // This needs mandatory copy elision because the target pair element is `const`, see: https://stackoverflow.com/a/73087143/2752075
+        // GCC and Clang (libstdc++ and libc++) reject this in C++14 and earlier. MSVC (MSVC's library) always accepts.
+        // Clang (MSVC's library) wasn't tested.
+        std::map<std::unique_ptr<int>, std::unique_ptr<float>> map1 = INIT(
+            std::make_pair(std::make_unique<int>(1), std::make_unique<float>(2.3)),
+            std::make_pair(std::make_unique<int>(1), std::make_unique<float>(2.3))
+        );
+
+        std::map<int, std::atomic_int> map2 = INIT(
+            std::make_pair(1, 2),
+            std::make_pair(3, 4)
+        );
         #endif
     }
 
