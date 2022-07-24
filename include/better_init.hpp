@@ -175,6 +175,7 @@ namespace better_init
 // This is issue https://github.com/microsoft/STL/issues/2620, fixed at June 20, 2022 by commit https://github.com/microsoft/STL/blob/3f203cb0d9bfde929a75eed877c228f88c0c7a46/stl/inc/xutility.
 // In theory, it could also help with the lack of mandatory copy elision pre-C++17, but it doesn't work on libc++ in C++14, because it uses a strict SFINAE e.g. on vector's constructor,
 // which doesn't respect allocator's `consturct()`.
+// By default, the hack is disabled at compile-time if we detect that your standard library is not bugged. Set `BETTER_INIT_ALLOCATOR_HACK` to 2 to enable it unconditionally, for testing.
 #ifndef BETTER_INIT_ALLOCATOR_HACK
 #if defined(_MSC_VER) && BETTER_INIT_CXX_STANDARD >= 20
 #define BETTER_INIT_ALLOCATOR_HACK 1
@@ -193,6 +194,14 @@ namespace better_init
 #else
 #define BETTER_INIT_ALLOCATOR_HACK_MAY_ALIAS __attribute__((__may_alias__))
 #endif
+#endif
+
+// If true, we can replace an allocator's `.construct()` func with placement-new, if we have to.
+// Normally this is not useful, because:
+// A. C++20 `std::allocator` doesn't define `.construct()`, and
+// B. If you have a lame allocator that does define it without a good reason, you can specialize a few of our templates for it.
+#ifndef BETTER_INIT_ALLOCATOR_HACK_IGNORE_EXISTING_CONSTRUCT_FUNC
+#define BETTER_INIT_ALLOCATOR_HACK_IGNORE_EXISTING_CONSTRUCT_FUNC 0
 #endif
 
 
@@ -501,6 +510,29 @@ namespace better_init
     {
         namespace allocator_hack
         {
+            // Check if we're affected by the bug.
+            #if BETTER_INIT_ALLOCATOR_HACK > 1
+            struct compiler_has_broken_construct_at : std::true_type {};
+            #else
+            struct construct_at_checker
+            {
+                constexpr construct_at_checker(int) {}
+                construct_at_checker(const construct_at_checker &) = delete;
+                construct_at_checker &operator=(const construct_at_checker &) = delete;
+            };
+
+            struct construct_at_checker_init
+            {
+                constexpr operator construct_at_checker() {return construct_at_checker(42);}
+            };
+
+            template <typename T = construct_at_checker, typename = void>
+            struct compiled_has_broken_construct_at_helper : std::true_type {};
+            template <typename T>
+            struct compiled_has_broken_construct_at_helper<T, decltype(void(std::construct_at((T *)nullptr, construct_at_checker_init{})))> : std::false_type {};
+            struct compiler_has_broken_construct_at : compiled_has_broken_construct_at_helper<> {};
+            #endif
+
             template <typename Base> struct modified_allocator;
             template <typename T> struct is_modified_allocator : std::false_type {};
             template <typename T> struct is_modified_allocator<modified_allocator<T>> : std::true_type {};
@@ -550,11 +582,21 @@ namespace better_init
             template <typename T>
             struct is_reference_class : std::is_base_of<ReferenceBase, T> {};
 
-            // Whether `.construct(ptr, P...)` should be wrapped, for allocator `T`.
+            // Whether `.construct(ptr, P...)` should be wrapped, for allocator `T`, because `P...` is a single reference class.
             template <typename Void, typename T, typename ...P>
-            struct should_wrap_construction : std::false_type {};
+            struct should_wrap_construction_from_ref : std::false_type {};
             template <typename T, typename Ref>
-            struct should_wrap_construction<std::enable_if_t<is_reference_class<std::remove_cv_t<std::remove_reference_t<Ref>>>::value>, T, Ref> : std::true_type {};
+            struct should_wrap_construction_from_ref<std::enable_if_t<is_reference_class<std::remove_cv_t<std::remove_reference_t<Ref>>>::value>, T, Ref> : std::true_type {};
+
+            // Whether the allocator `T` defines `.construct(declval<P>()...)`.
+            // If it doesn't do so, we can replace `allocator_traits<T>::construct()` with placement-new.
+            // Note that `P[0]` is a pointer to the target location.
+            template <typename Void, typename T, typename ...P>
+            struct allocator_defines_construct_func : std::false_type {};
+            #if !BETTER_INIT_ALLOCATOR_HACK_IGNORE_EXISTING_CONSTRUCT_FUNC
+            template <typename T, typename ...P>
+            struct allocator_defines_construct_func<decltype(void(declval<T>().construct(declval<P>()...))), T, P...> : std::true_type {};
+            #endif
 
             template <typename Base>
             struct modified_allocator : Base
@@ -569,28 +611,46 @@ namespace better_init
                 // Solely for convenience. The rest of typedefs are inherited.
                 using value_type = typename std::allocator_traits<Base>::value_type;
 
-                // This is called by `construct()` if no workaround is needed.
-                // Interestingly, clang complains if those are defined below `construct()`. Probably because they're mentioned in its `noexcept` specification.
-                template <typename ...P>
-                constexpr void construct_low(std::false_type, value_type *ptr, P &&... params)
-                noexcept(noexcept(std::allocator_traits<Base>::construct(static_cast<Base &>(*this), ptr, static_cast<P &&>(params)...)))
+                // Note that the functions below need to be defined in a specific order (before calling them), otherwise Clang complains.
+                // Probably because they're mentioned in each other's `noexcept` specifications.
+
+                // Variant: `P...` is NOT our reference class, AND the allocator DOES NOT have a custom `.construct()`.
+                template <typename T, typename ...P>
+                constexpr void construct_low2(std::false_type, T *ptr, P &&... params)
+                noexcept(std::is_nothrow_constructible<T, P &&...>::value)
+                {
+                    ::new((void *)ptr) T(static_cast<P &&>(params)...);
+                }
+                // Variant: `P...` is NOT our reference class, AND the allocator DOES have a custom `.construct()`.
+                template <typename T, typename ...P>
+                constexpr void construct_low2(std::true_type, T *ptr, P &&... params)
+                noexcept(std::allocator_traits<Base>::construct(static_cast<Base &>(*this), ptr, static_cast<P &&>(params)...))
                 {
                     std::allocator_traits<Base>::construct(static_cast<Base &>(*this), ptr, static_cast<P &&>(params)...);
                 }
-                // This is called by `construct()` when the workaround is needed.
-                template <typename T>
-                constexpr void construct_low(std::true_type, value_type *ptr, T &&param)
-                noexcept(noexcept(declval<T &&>().allocator_hack_construct_at(*this, declval<value_type *>())))
+
+                // Variant: `P...` is NOT our reference class, and...
+                template <typename T, typename ...P>
+                constexpr void construct_low(std::false_type, T *ptr, P &&... params)
+                noexcept(noexcept(construct_low2(allocator_defines_construct_func<Base, T *, P &&...>{}, ptr, static_cast<P &&>(params)...)))
                 {
-                    static_cast<T &&>(param).allocator_hack_construct_at(*this, ptr);
+                    construct_low2(allocator_defines_construct_func<Base, T *, P &&...>{}, ptr, static_cast<P &&>(params)...);
+                }
+                // Variant: `P...` IS our reference class, and...
+                template <typename T, typename U>
+                constexpr void construct_low(std::true_type, T *ptr, U &&param)
+                noexcept(noexcept(declval<U &&>().allocator_hack_construct_at(*this, ptr)))
+                {
+                    static_cast<U &&>(param).allocator_hack_construct_at(*this, ptr);
                 }
 
                 // Override `construct()` to do the right thing.
-                template <typename ...P>
-                constexpr void construct(value_type *ptr, P &&... params)
-                noexcept(noexcept(construct_low(should_wrap_construction<void, Base, P...>{}, ptr, static_cast<P &&>(params)...)))
+                // Yes, this HAS TO be templated on the pointer type. See allocator requirements. MSVC's `std::map` actively uses this (uses `alloc<_Tree_node>` to construct pairs).
+                template <typename T, typename ...P>
+                constexpr void construct(T *ptr, P &&... params)
+                noexcept(noexcept(construct_low(should_wrap_construction_from_ref<void, Base, P...>{}, ptr, static_cast<P &&>(params)...)))
                 {
-                    construct_low(should_wrap_construction<void, Base, P...>{}, ptr, static_cast<P &&>(params)...);
+                    construct_low(should_wrap_construction_from_ref<void, Base, P...>{}, ptr, static_cast<P &&>(params)...);
                 }
             };
         }
@@ -601,6 +661,7 @@ namespace better_init
         template <typename T, typename Iter, typename ...P>
         struct construct<
             std::enable_if_t<
+                detail::allocator_hack::compiler_has_broken_construct_at::value &&
                 detail::allocator_hack::has_replaceable_allocator<T>::value
             >,
             T, Iter, P...

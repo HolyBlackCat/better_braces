@@ -253,8 +253,8 @@ int main()
         // GCC and Clang (libstdc++ and libc++) reject this in C++14 and earlier. MSVC (MSVC's library) always accepts.
         // Clang (MSVC's library) wasn't tested.
         std::map<std::unique_ptr<int>, std::unique_ptr<float>> map1 = INIT(
-            std::make_pair(std::make_unique<int>(1), std::make_unique<float>(2.3)),
-            std::make_pair(std::make_unique<int>(1), std::make_unique<float>(2.3))
+            std::make_pair(std::make_unique<int>(1), std::make_unique<float>(2.3f)),
+            std::make_pair(std::make_unique<int>(1), std::make_unique<float>(2.3f))
         );
 
         std::map<int, std::atomic_int> map2 = INIT(
@@ -279,7 +279,10 @@ int main()
     }
 
     std::cout << "OK";
-    if (BETTER_INIT_ALLOCATOR_HACK)
-        std::cout << "  (with allocator hack)";
+    #if BETTER_INIT_ALLOCATOR_HACK
+    std::cout << "  (with allocator hack)";
+    if (!better_init::detail::allocator_hack::compiler_has_broken_construct_at:;value)
+        std::cout << " (the allocator hack is unnecessary)";
+    #endif
     std::cout << '\n';
 }
