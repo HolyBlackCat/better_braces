@@ -220,7 +220,7 @@ int main()
 
     { // Generic usage tests.
         std::vector<std::unique_ptr<int>> vec1 = INIT(nullptr, std::make_unique<int>(42));
-        ASSERT(vec1.size() == 2);
+        ASSERT_EQ(vec1.size(), 2);
         ASSERT(vec1[0] == nullptr);
         ASSERT(vec1[1] != nullptr && *vec1[1] == 42);
 
@@ -229,10 +229,10 @@ int main()
 
         #if TEST_NON_COPYABLE_TYPES
         std::vector<std::atomic_int> vec3 = INIT(1, 2, 3);
-        ASSERT(vec3.size() == 3);
-        ASSERT(vec3[0].load() == 1);
-        ASSERT(vec3[1].load() == 2);
-        ASSERT(vec3[2].load() == 3);
+        ASSERT_EQ(vec3.size(), 3);
+        ASSERT_EQ(vec3[0].load(), 1);
+        ASSERT_EQ(vec3[1].load(), 2);
+        ASSERT_EQ(vec3[2].load(), 3);
 
         std::vector<std::atomic_int> vec4 = INIT();
         ASSERT(vec4.empty());
@@ -240,27 +240,37 @@ int main()
         int a = 5;
         const int b = 6;
         std::vector<std::atomic_int> vec5 = INIT(4, a, b);
-        ASSERT(vec5.size() == 3);
-        ASSERT(vec5[0].load() == 4);
-        ASSERT(vec5[1].load() == 5);
-        ASSERT(vec5[2].load() == 6);
+        ASSERT_EQ(vec5.size(), 3);
+        ASSERT_EQ(vec5[0].load(), 4);
+        ASSERT_EQ(vec5[1].load(), 5);
+        ASSERT_EQ(vec5[2].load(), 6);
         #endif
     }
 
     { // Maps.
         #if BETTER_INIT_CXX_STANDARD >= 17
-        // This needs mandatory copy elision because the target pair element is `const`, see: https://stackoverflow.com/a/73087143/2752075
-        // GCC and Clang (libstdc++ and libc++) reject this in C++14 and earlier. MSVC (MSVC's library) always accepts.
-        // Clang (MSVC's library) wasn't tested.
+        // This needs mandatory copy elision because the target pair element is `const`, see: https://stackoverflow.com/a/73087143
+        // GCC and Clang (libstdc++ and libc++) reject this in C++14 and earlier. MSVC (MSVC's library) always accepts. Clang (MSVC's library) wasn't tested.
         std::map<std::unique_ptr<int>, std::unique_ptr<float>> map1 = INIT(
             std::make_pair(std::make_unique<int>(1), std::make_unique<float>(2.3f)),
-            std::make_pair(std::make_unique<int>(1), std::make_unique<float>(2.3f))
+            std::make_pair(std::make_unique<int>(2), std::make_unique<float>(3.4f))
         );
+        ASSERT_EQ(map1.size(), 2);
+        for (const auto &[key, value] : map1)
+        {
+            if (*key == 1)
+                ASSERT_EQ(*value, 2.3f);
+            else
+                ASSERT_EQ(*value, 3.4f);
+        }
 
         std::map<int, std::atomic_int> map2 = INIT(
             std::make_pair(1, 2),
             std::make_pair(3, 4)
         );
+        ASSERT_EQ(map2.size(), 2);
+        ASSERT_EQ(map2.at(1).load(), 2);
+        ASSERT_EQ(map2.at(3).load(), 4);
         #endif
     }
 
@@ -281,7 +291,7 @@ int main()
     std::cout << "OK";
     #if BETTER_INIT_ALLOCATOR_HACK
     std::cout << "  (with allocator hack)";
-    if (!better_init::detail::allocator_hack::compiler_has_broken_construct_at:;value)
+    if (!better_init::detail::allocator_hack::compiler_has_broken_construct_at::value)
         std::cout << " (the allocator hack is unnecessary)";
     #endif
     std::cout << '\n';
