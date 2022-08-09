@@ -74,7 +74,7 @@ endif
 commands:
 	$(eval override cxx := $(lastword $(filter clang++%,$(COMPILER))))
 	$(if $(cxx),,$(error Unable to guess the compiler))
-	$(eval override std := $(firstword $(STANDARD)))
+	$(eval override std := $(firstword $(filter-out latest,$(STANDARD))))
 	$(if $(std),,$(error Unable to guess the C++ standard version))
 	$(file >compile_commands.json,[{"directory":"$(CURDIR)", "file":"$(abspath $(SRC))", "command":"$(cxx) $(SRC) $(CXXFLAGS) $(CXXFLAGS_DEFAULT) -std=c++$(std)"}])
 	@true
