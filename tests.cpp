@@ -5,7 +5,9 @@
 // To run on https://gcc.godbolt.org, copy-paste following:
 // #include <https://raw.githubusercontent.com/HolyBlackCat/better_init/master/include/better_init.hpp>
 // #include <https://raw.githubusercontent.com/HolyBlackCat/better_init/master/include/tests.cpp>
+// Or copypaste `better_init.hpp`, followed by this file.
 
+#include <array>
 #include <atomic>
 #include <cstddef>
 #include <iostream>
@@ -224,53 +226,110 @@ int main()
         ASSERT(vec1[0] == nullptr);
         ASSERT(vec1[1] != nullptr && *vec1[1] == 42);
 
-        std::vector<std::unique_ptr<int>> vec2 = INIT();
-        ASSERT(vec2.empty());
+        std::vector<std::unique_ptr<int>> vec2 = INIT(nullptr);
+        ASSERT_EQ(vec2.size(), 1);
+        ASSERT(vec2[0] == nullptr);
+
+        std::vector<std::unique_ptr<int>> vec3 = INIT();
+        ASSERT(vec3.empty());
 
         #if TEST_NON_COPYABLE_TYPES
-        std::vector<std::atomic_int> vec3 = INIT(1, 2, 3);
-        ASSERT_EQ(vec3.size(), 3);
-        ASSERT_EQ(vec3[0].load(), 1);
-        ASSERT_EQ(vec3[1].load(), 2);
-        ASSERT_EQ(vec3[2].load(), 3);
+        std::vector<std::atomic_int> vec4 = INIT(1, 2, 3);
+        ASSERT_EQ(vec4.size(), 3);
+        ASSERT_EQ(vec4[0].load(), 1);
+        ASSERT_EQ(vec4[1].load(), 2);
+        ASSERT_EQ(vec4[2].load(), 3);
 
-        std::vector<std::atomic_int> vec4 = INIT();
-        ASSERT(vec4.empty());
+        std::vector<std::atomic_int> vec5 = INIT();
+        ASSERT(vec5.empty());
 
         int a = 5;
         const int b = 6;
-        std::vector<std::atomic_int> vec5 = INIT(4, a, b);
-        ASSERT_EQ(vec5.size(), 3);
-        ASSERT_EQ(vec5[0].load(), 4);
-        ASSERT_EQ(vec5[1].load(), 5);
-        ASSERT_EQ(vec5[2].load(), 6);
+        std::vector<std::atomic_int> vec6 = INIT(4, a, b);
+        ASSERT_EQ(vec6.size(), 3);
+        ASSERT_EQ(vec6[0].load(), 4);
+        ASSERT_EQ(vec6[1].load(), 5);
+        ASSERT_EQ(vec6[2].load(), 6);
+        #endif
+    }
+
+    { // Explicit initialization.
+        // Double parentheses, because GCC 11 becomes confused otherwise. Most probably a bug.
+        std::vector<std::unique_ptr<int>> vec1((INIT(nullptr, std::make_unique<int>(42))));
+        ASSERT_EQ(vec1.size(), 2);
+        ASSERT(vec1[0] == nullptr);
+        ASSERT(vec1[1] != nullptr && *vec1[1] == 42);
+    }
+
+    { // Brace initialization, as opposed to initialization with pairs iterators.
+        std::array<std::unique_ptr<int>, 2> arr1 = INIT(nullptr, std::make_unique<int>(42));
+        ASSERT(arr1[0] == nullptr);
+        ASSERT(arr1[1] != nullptr && *arr1[1] == 42);
+
+        std::array<std::unique_ptr<int>, 2> arr2 = INIT(std::make_unique<int>(43));
+        ASSERT(arr2[0] != nullptr && *arr2[0] == 43);
+        ASSERT(arr2[1] == nullptr);
+
+        #if TEST_NON_COPYABLE_TYPES
+        std::array<std::atomic_int, 3> arr3 = INIT(1, 2, 3);
+        ASSERT_EQ(arr3[0].load(), 1);
+        ASSERT_EQ(arr3[1].load(), 2);
+        ASSERT_EQ(arr3[2].load(), 3);
         #endif
     }
 
     { // Maps.
-        #if BETTER_INIT_CXX_STANDARD >= 17
+        // From lists of pairs.
         // This needs mandatory copy elision because the target pair element is `const`, see: https://stackoverflow.com/a/73087143
         // GCC and Clang (libstdc++ and libc++) reject this in C++14 and earlier. MSVC (MSVC's library) always accepts. Clang (MSVC's library) wasn't tested.
-        std::map<std::unique_ptr<int>, std::unique_ptr<float>> map1 = INIT(
-            std::make_pair(std::make_unique<int>(1), std::make_unique<float>(2.3f)),
-            std::make_pair(std::make_unique<int>(2), std::make_unique<float>(3.4f))
-        );
-        ASSERT_EQ(map1.size(), 2);
-        for (const auto &[key, value] : map1)
+        #if BETTER_INIT_CXX_STANDARD >= 17
         {
-            if (*key == 1)
-                ASSERT_EQ(*value, 2.3f);
-            else
-                ASSERT_EQ(*value, 3.4f);
-        }
+            std::map<std::unique_ptr<int>, std::unique_ptr<float>> map1 = INIT(
+                std::make_pair(std::make_unique<int>(1), std::make_unique<float>(2.3f)),
+                std::make_pair(std::make_unique<int>(2), std::make_unique<float>(3.4f))
+            );
+            ASSERT_EQ(map1.size(), 2);
+            for (const auto &[key, value] : map1)
+            {
+                if (*key == 1)
+                    ASSERT_EQ(*value, 2.3f);
+                else
+                    ASSERT_EQ(*value, 3.4f);
+            }
 
-        std::map<int, std::atomic_int> map2 = INIT(
-            std::make_pair(1, 2),
-            std::make_pair(3, 4)
-        );
-        ASSERT_EQ(map2.size(), 2);
-        ASSERT_EQ(map2.at(1).load(), 2);
-        ASSERT_EQ(map2.at(3).load(), 4);
+            std::map<int, std::atomic_int> map2 = INIT(
+                std::make_pair(1, 2),
+                std::make_pair(3, 4)
+            );
+            ASSERT_EQ(map2.size(), 2);
+            ASSERT_EQ(map2.at(1).load(), 2);
+            ASSERT_EQ(map2.at(3).load(), 4);
+        }
+        #endif
+
+        #if BETTER_INIT_CXX_STANDARD >= 17
+        { // From lists of lists.
+            std::map<std::unique_ptr<int>, std::unique_ptr<float>> map3 = INIT(
+                INIT(std::make_unique<int>(1), std::make_unique<float>(2.3f)),
+                INIT(std::make_unique<int>(2), std::make_unique<float>(3.4f))
+            );
+            ASSERT_EQ(map3.size(), 2);
+            for (const auto &[key, value] : map3)
+            {
+                if (*key == 1)
+                    ASSERT_EQ(*value, 2.3f);
+                else
+                    ASSERT_EQ(*value, 3.4f);
+            }
+
+            std::map<int, std::atomic_int> map4 = INIT(
+                INIT(1, 2),
+                INIT(3, 4)
+            );
+            ASSERT_EQ(map4.size(), 2);
+            ASSERT_EQ(map4.at(1).load(), 2);
+            ASSERT_EQ(map4.at(3).load(), 4);
+        }
         #endif
     }
 
