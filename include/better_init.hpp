@@ -68,7 +68,7 @@ namespace better_init
         template <typename Void, typename T, typename ...P>
         struct implicitly_brace_constructible : std::false_type {};
         template <typename T, typename ...P>
-        struct implicitly_brace_constructible<decltype(accept_parameter<T>({declval<P>()...})), T, P...> : std::true_type {};
+        struct implicitly_brace_constructible<decltype(accept_parameter<T &&>({declval<P>()...})), T, P...> : std::true_type {}; // Note `T &&`. MSVC is buggy and rejects non-copyable types otherwise.
 
         // Can be passed to `construct_braced`, in unevaluated expressions.
         struct dummy_brace_construct_func
@@ -391,8 +391,9 @@ namespace better_init
       public:
         // Whether this list can be used to initialize a range of `T`s.
         // I guess we could check `detail::brace_constructible` for each element instead, but it just feels wonky.
-        template <typename T> struct can_initialize_elem         : detail::all_of<std::is_constructible        <T, P &&>...> {};
-        template <typename T> struct can_nothrow_initialize_elem : detail::all_of<std::is_nothrow_constructible<T, P &&>...> {};
+        // Note `P` instead of `P &&`. The two should be equivalent, but the latter confuses MSVC in some cases.
+        template <typename T> struct can_initialize_elem         : detail::all_of<std::is_constructible        <T, P>...> {};
+        template <typename T> struct can_nothrow_initialize_elem : detail::all_of<std::is_nothrow_constructible<T, P>...> {};
 
       private:
         template <typename T>
