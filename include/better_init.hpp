@@ -466,7 +466,7 @@ namespace better_init
             using value_type = Reference<T>;
             #if !BETTER_INIT_SMART_ITERATOR_TRAITS
             using iterator_category = std::random_access_iterator_tag;
-            using reference = Reference<T>;
+            using reference = const Reference<T> &;
             using pointer = void;
             using difference_type = detail::ptrdiff_t;
             #endif
