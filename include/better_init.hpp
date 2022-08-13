@@ -191,15 +191,6 @@ namespace better_init
 #endif
 #endif
 
-// Whether we have mandatory copy elision or not.
-#ifndef BETTER_INIT_HAVE_MANDATORY_COPY_ELISION
-#if BETTER_INIT_CXX_STANDARD >= 17
-#define BETTER_INIT_HAVE_MANDATORY_COPY_ELISION 1
-#else
-#define BETTER_INIT_HAVE_MANDATORY_COPY_ELISION 0
-#endif
-#endif
-
 // Whether `std::iterator_traits` can guess the iterator category and various typedefs. This is a C++20 feature.
 // If this is false, we're forced to include `<iterator>` to specify `std::random_access_iterator_tag`.
 #ifndef BETTER_INIT_SMART_ITERATOR_TRAITS
