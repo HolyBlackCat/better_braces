@@ -4,7 +4,7 @@
 # Optimization modes to test. Override this with a subset of modes if you want to.
 OPTIMIZE := O0_sanitized O0 Omax
 OPTIM_NAME_O0_sanitized := '-O0, ASAN+UBSAN'
-OPTIM_FLAGS_O0_sanitized := -O0 -fsanitize=address -fsanitize=undefined
+OPTIM_FLAGS_O0_sanitized := -O0 -g -fsanitize=address -fsanitize=undefined
 OPTIM_NAME_O0 := '-O0            '
 OPTIM_FLAGS_O0 := -O0
 OPTIM_NAME_Omax := '-O3            '
@@ -32,8 +32,12 @@ CXXFLAGS_DEFAULT_MSVC := -Iinclude -EHsc
 # Less important compiler flags.
 CXXFLAGS :=
 
-
 SRC := tests.cpp
+
+
+# Used to create local variables in a safer way. E.g. `$(call var,x := 42)`.
+override var = $(eval override $(subst $,$$$$,$1))
+
 
 .PHONY: tests
 tests:
@@ -58,10 +62,17 @@ else ifneq ($(and $(filter clang++%,$(COMPILER)),$(filter libc++,$(STDLIB)),$(if
 else
 	@+printf "%-11s C++%-7s %-10s %-14s...  " $(COMPILER) $(STANDARD) $(STDLIB) $(OPTIMIZE)
 	@$(strip \
+		$(if $(filter %cl,$(COMPILER)),MSYS2_ARG_CONV_EXCL=/DEBUG)\
 		$(COMPILER) $(SRC) \
 		$(CXXFLAGS) \
 		$(CXXFLAGS_DEFAULT$(if $(filter %cl,$(COMPILER)),_MSVC)) \
-		$(filter-out $(if $(filter %cl,$(COMPILER)),-fsanitize=undefined -O0),$(OPTIM_FLAGS_$(OPTIMIZE))) \
+		$(call var,_optim_flags := $(OPTIM_FLAGS_$(OPTIMIZE)))\
+		$(if $(filter %cl,$(COMPILER)),\
+    		$(call var,_optim_flags := $(filter-out -fsanitize=undefined -O0,$(_optim_flags)))\
+    		$(call var,_optim_flags := $(patsubst -g,/DEBUG,$(_optim_flags)))\
+    		$(call var,_optim_flags := $(patsubst -O3,-O2,$(_optim_flags)))\
+		)\
+		$(_optim_flags)\
 		-std$(if $(filter %cl,$(COMPILER)),:,=)c++$(STANDARD) \
 		$(if $(filter clang++%,$(COMPILER)),-stdlib=$(STDLIB)) \
 		$(patsubst $(COMPILER)=%,%,$(filter $(COMPILER)=%,$(CXXFLAGS_PER_COMPILER))) \
@@ -74,7 +85,7 @@ endif
 commands:
 	$(eval override cxx := $(lastword $(filter clang++%,$(COMPILER))))
 	$(if $(cxx),,$(error Unable to guess the compiler))
-	$(eval override std := $(firstword $(STANDARD)))
+	$(eval override std := $(firstword $(filter-out latest,$(STANDARD))))
 	$(if $(std),,$(error Unable to guess the C++ standard version))
 	$(file >compile_commands.json,[{"directory":"$(CURDIR)", "file":"$(abspath $(SRC))", "command":"$(cxx) $(SRC) $(CXXFLAGS) $(CXXFLAGS_DEFAULT) -std=c++$(std)"}])
 	@true
