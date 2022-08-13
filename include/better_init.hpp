@@ -226,7 +226,13 @@ namespace better_init
 
 // How to stop the program when something bad happens.
 #ifndef BETTER_INIT_ABORT
-#ifdef _MSC_VER
+#if defined(_MSC_VER) && defined(__clang__)
+#define BETTER_INIT_ABORT \
+    _Pragma("clang diagnostic push") \
+    _Pragma("clang diagnostic ignored \"-Winvalid-noreturn\"") \
+    __debugbreak(); \
+    _Pragma("clang diagnostic pop")
+#elif defined(_MSC_VER)
 #define BETTER_INIT_ABORT __debugbreak();
 #else
 #define BETTER_INIT_ABORT __builtin_trap();
