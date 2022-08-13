@@ -350,6 +350,17 @@ namespace better_init
         }
         #endif
 
+        // Replaces `std::is_constructible`. The standard trait is buggy at least in MSVC v19.32.
+        template <typename Void, typename T, typename ...P>
+        struct constructible_helper : std::false_type {};
+        template <typename T, typename ...P>
+        struct constructible_helper<decltype(void(T(std::declval<P>()...))), T, P...> : std::true_type {};
+        template <typename T, typename ...P>
+        struct constructible : constructible_helper<void, T, P...> {};
+
+        template <typename T, typename ...P>
+        struct nothrow_constructible : std::integral_constant<bool, noexcept(T(std::declval<P>()...))> {};
+
         // Whether `T` is constructible from a pair of `Iter`s, possibly with extra arguments.
         template <typename Void, typename T, typename Iter, typename ...P>
         struct constructible_from_iters_helper : std::false_type {};
@@ -391,9 +402,8 @@ namespace better_init
       public:
         // Whether this list can be used to initialize a range of `T`s.
         // I guess we could check `detail::brace_constructible` for each element instead, but it just feels wonky.
-        // Note `P` instead of `P &&`. The two should be equivalent, but the latter confuses MSVC in some cases.
-        template <typename T> struct can_initialize_elem         : detail::all_of<std::is_constructible        <T, P>...> {};
-        template <typename T> struct can_nothrow_initialize_elem : detail::all_of<std::is_nothrow_constructible<T, P>...> {};
+        template <typename T> struct can_initialize_elem         : detail::all_of<detail::constructible        <T, P>...> {};
+        template <typename T> struct can_nothrow_initialize_elem : detail::all_of<detail::nothrow_constructible<T, P>...> {};
 
       private:
         template <typename T>
