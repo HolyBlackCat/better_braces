@@ -25,11 +25,11 @@
 #define INIT(...) init(__VA_ARGS__)
 #endif
 
-#ifndef TEST_NON_COPYABLE_TYPES
+#ifndef HAVE_MANDATORY_COPY_ELISION
 #if BETTER_INIT_CXX_STANDARD >= 17
-#define TEST_NON_COPYABLE_TYPES 1
+#define HAVE_MANDATORY_COPY_ELISION 1
 #else
-#define TEST_NON_COPYABLE_TYPES 0
+#define HAVE_MANDATORY_COPY_ELISION 0
 #endif
 #endif
 
@@ -83,7 +83,7 @@ better_init::DETAIL_BETTER_INIT_CLASS_NAME<P...> &&invalid_init_list()
     #pragma GCC diagnostic ignored "-Wstrict-aliasing"
     #endif
     static int dummy;
-    return (better_init::DETAIL_BETTER_INIT_CLASS_NAME<P...> &&)dummy;
+    return reinterpret_cast<better_init::DETAIL_BETTER_INIT_CLASS_NAME<P...> &&>(dummy);
     #ifdef __GNUC__
     #pragma GCC diagnostic pop
     #endif
@@ -92,8 +92,20 @@ better_init::DETAIL_BETTER_INIT_CLASS_NAME<P...> &&invalid_init_list()
 // A bunch of list variations for us to check.
 #define CHECKED_LIST_TYPES(X) \
     /* Target type         | Element types... */\
+    /* Empty list. */\
     X(int,                  ) \
-    X(int,                  int, int) \
+    /* Homogeneous lists. */\
+    X(int,                        int  ) \
+    X(int,                        int &) \
+    X(int,                  const int  ) \
+    X(int,                  const int &) \
+    X(int,                        int  ,       int  ) \
+    X(int,                        int &,       int &) \
+    X(int,                  const int  , const int  ) \
+    X(int,                  const int &, const int &) \
+    /* Heterogeneous lists. */\
+    X(int,                  int, const int) \
+    X(int,                  int, int, int) \
     X(int,                  int, const int, int &, const int &) \
     X(std::unique_ptr<int>, std::nullptr_t &, std::unique_ptr<int>) \
 
@@ -196,23 +208,28 @@ struct IteratorSanityChecker
 
 
 // A fake container without a `std::initializer_list` constructor, to check implicit-ness of conversions.
-struct ContainerWithoutListCtor
+struct RangeWithoutListCtor
 {
     using value_type = int;
 
     template <typename T>
-    ContainerWithoutListCtor(T, T) {}
+    RangeWithoutListCtor(T, T) {}
 };
 
 // A fake container that requires extra parameters after two iterators.
-struct ContainerWithForcedArgs
+struct RangeWithForcedArgs
 {
     using value_type = int;
 
     template <typename T>
-    ContainerWithForcedArgs(T, T, int, int, int) {}
+    RangeWithForcedArgs(T, T, int, int, int) {}
 };
-template <typename ...P> using MakeContainerWithForcedArgs = decltype(INIT(1, 2, 3).to<ContainerWithForcedArgs>(std::declval<P>()...));
+template <typename ...P> using MakeRangeWithForcedArgs = decltype(INIT(1, 2, 3).to<RangeWithForcedArgs>(std::declval<P>()...));
+
+struct NonrangeWithExplicitCtor
+{
+    explicit NonrangeWithExplicitCtor(int, int, int) {}
+};
 
 
 int main()
@@ -221,40 +238,46 @@ int main()
     (void)IteratorSanityChecker(INIT(1, 2, 3));
 
     { // Generic usage tests.
-        std::vector<std::unique_ptr<int>> vec1 = INIT(nullptr, std::make_unique<int>(42));
+        std::vector<std::unique_ptr<int>> vec1 = INIT(std::unique_ptr<int>(), std::make_unique<int>(42));
         ASSERT_EQ(vec1.size(), 2);
         ASSERT(vec1[0] == nullptr);
         ASSERT(vec1[1] != nullptr && *vec1[1] == 42);
 
-        std::vector<std::unique_ptr<int>> vec2 = INIT(nullptr);
-        ASSERT_EQ(vec2.size(), 1);
+        std::vector<std::unique_ptr<int>> vec2 = INIT(nullptr, std::make_unique<int>(42));
         ASSERT(vec2[0] == nullptr);
+        ASSERT(vec2[1] != nullptr && *vec2[1] == 42);
 
-        std::vector<std::unique_ptr<int>> vec3 = INIT();
-        ASSERT(vec3.empty());
+        std::vector<std::unique_ptr<int>> vec3 = INIT(nullptr);
+        ASSERT_EQ(vec3.size(), 1);
+        ASSERT(vec3[0] == nullptr);
 
-        #if TEST_NON_COPYABLE_TYPES
-        std::vector<std::atomic_int> vec4 = INIT(1, 2, 3);
-        ASSERT_EQ(vec4.size(), 3);
-        ASSERT_EQ(vec4[0].load(), 1);
-        ASSERT_EQ(vec4[1].load(), 2);
-        ASSERT_EQ(vec4[2].load(), 3);
+        std::vector<std::unique_ptr<int>> vec4 = INIT();
+        ASSERT(vec4.empty());
 
-        std::vector<std::atomic_int> vec5 = INIT();
-        ASSERT(vec5.empty());
+        // Even without mandatory copy elision, homogeneous lists of non-movable types are fine.
+        std::vector<std::atomic_int> vec5 = INIT(1, 2, 3);
+        ASSERT_EQ(vec5.size(), 3);
+        ASSERT_EQ(vec5[0].load(), 1);
+        ASSERT_EQ(vec5[1].load(), 2);
+        ASSERT_EQ(vec5[2].load(), 3);
+
+        #if HAVE_MANDATORY_COPY_ELISION
+        // Empty lists count as hetergeneous, thus require mandatory copy elision.
+        std::vector<std::atomic_int> vec6 = INIT();
+        ASSERT(vec6.empty());
 
         int a = 5;
         const int b = 6;
-        std::vector<std::atomic_int> vec6 = INIT(4, a, b);
-        ASSERT_EQ(vec6.size(), 3);
-        ASSERT_EQ(vec6[0].load(), 4);
-        ASSERT_EQ(vec6[1].load(), 5);
-        ASSERT_EQ(vec6[2].load(), 6);
+        std::vector<std::atomic_int> vec7 = INIT(4, a, b);
+        ASSERT_EQ(vec7.size(), 3);
+        ASSERT_EQ(vec7[0].load(), 4);
+        ASSERT_EQ(vec7[1].load(), 5);
+        ASSERT_EQ(vec7[2].load(), 6);
         #endif
     }
 
     { // Explicit initialization.
-        // Double parentheses, because GCC 11 becomes confused otherwise. Most probably a bug.
+        // Double parentheses, because GCC 11 becomes confused otherwise. Most probably a bug?
         std::vector<std::unique_ptr<int>> vec1((INIT(nullptr, std::make_unique<int>(42))));
         ASSERT_EQ(vec1.size(), 2);
         ASSERT(vec1[0] == nullptr);
@@ -262,39 +285,48 @@ int main()
     }
 
     { // Brace initialization, as opposed to initialization with pairs iterators.
-        std::array<std::unique_ptr<int>, 2> arr1 = INIT(nullptr, std::make_unique<int>(42));
+        std::array<std::unique_ptr<int>, 2> arr1 = INIT(std::unique_ptr<int>(), std::make_unique<int>(42));
         ASSERT(arr1[0] == nullptr);
         ASSERT(arr1[1] != nullptr && *arr1[1] == 42);
 
-        std::array<std::unique_ptr<int>, 2> arr2 = INIT(std::make_unique<int>(43));
-        ASSERT(arr2[0] != nullptr && *arr2[0] == 43);
-        ASSERT(arr2[1] == nullptr);
+        std::array<std::unique_ptr<int>, 2> arr2 = INIT(nullptr, std::make_unique<int>(42));
+        ASSERT(arr2[0] == nullptr);
+        ASSERT(arr2[1] != nullptr && *arr2[1] == 42);
 
-        #if TEST_NON_COPYABLE_TYPES
-        std::array<std::atomic_int, 3> arr3 = INIT(1, 2, 3);
-        ASSERT_EQ(arr3[0].load(), 1);
-        ASSERT_EQ(arr3[1].load(), 2);
-        ASSERT_EQ(arr3[2].load(), 3);
+        std::array<std::unique_ptr<int>, 2> arr3 = INIT(std::make_unique<int>(43));
+        ASSERT(arr3[0] != nullptr && *arr3[0] == 43);
+        ASSERT(arr3[1] == nullptr);
+
+        std::array<std::unique_ptr<int>, 0> arr4 = INIT();
+        (void)arr4;
+
+        // The lists being homogeneous doesn't help us here, because we need to elide the move for the whole `std::array`.
+        #if HAVE_MANDATORY_COPY_ELISION
+        std::array<std::atomic_int, 3> arr5 = INIT(1, 2, 3);
+        ASSERT_EQ(arr5[0].load(), 1);
+        ASSERT_EQ(arr5[1].load(), 2);
+        ASSERT_EQ(arr5[2].load(), 3);
+
+        std::array<std::atomic_int, 0> arr6 = INIT();
+        (void)arr6;
         #endif
     }
 
     { // Maps.
-        // From lists of pairs.
-        // This needs mandatory copy elision because the target pair element is `const`, see: https://stackoverflow.com/a/73087143
-        // GCC and Clang (libstdc++ and libc++) reject this in C++14 and earlier. MSVC (MSVC's library) always accepts. Clang (MSVC's library) wasn't tested.
-        #if BETTER_INIT_CXX_STANDARD >= 17
-        {
+        { // From lists of pairs.0
+            // Homogeneous lists.
+
             std::map<std::unique_ptr<int>, std::unique_ptr<float>> map1 = INIT(
                 std::make_pair(std::make_unique<int>(1), std::make_unique<float>(2.3f)),
                 std::make_pair(std::make_unique<int>(2), std::make_unique<float>(3.4f))
             );
             ASSERT_EQ(map1.size(), 2);
-            for (const auto &[key, value] : map1)
+            for (const auto &elem : map1)
             {
-                if (*key == 1)
-                    ASSERT_EQ(*value, 2.3f);
+                if (*elem.first == 1)
+                    ASSERT_EQ(*elem.second, 2.3f);
                 else
-                    ASSERT_EQ(*value, 3.4f);
+                    ASSERT_EQ(*elem.second, 3.4f);
             }
 
             std::map<int, std::atomic_int> map2 = INIT(
@@ -304,22 +336,53 @@ int main()
             ASSERT_EQ(map2.size(), 2);
             ASSERT_EQ(map2.at(1).load(), 2);
             ASSERT_EQ(map2.at(3).load(), 4);
-        }
-        #endif
 
-        #if BETTER_INIT_CXX_STANDARD >= 17
+            // Heterogeneous lists.
+            // For maps, the element type is never movable (because the first template parameter of the pair is const),
+            // so we need the mandatory copy elision regardless of the map template arguments.
+            #if HAVE_MANDATORY_COPY_ELISION
+            std::map<std::unique_ptr<int>, std::unique_ptr<float>> map3 = INIT(
+                std::make_pair(nullptr, std::make_unique<float>(2.3f)),
+                std::make_pair(std::make_unique<int>(2), std::make_unique<float>(3.4f))
+            );
+            ASSERT_EQ(map3.size(), 2);
+            for (const auto &elem : map3)
+            {
+                if (!elem.first)
+                {
+                    ASSERT_EQ(*elem.second, 2.3f);
+                }
+                else
+                {
+                    ASSERT_EQ(*elem.first, 2);
+                    ASSERT_EQ(*elem.second, 3.4f);
+                }
+            }
+
+            std::map<int, std::atomic_int> map4 = INIT(
+                std::make_pair(1, 2),
+                std::make_pair(3, 4)
+            );
+            ASSERT_EQ(map4.size(), 2);
+            ASSERT_EQ(map4.at(1).load(), 2);
+            ASSERT_EQ(map4.at(3).load(), 4);
+            #endif
+        }
+
         { // From lists of lists.
+            // All of this needs mandatory copy elision, since constructing a non-movable non-range (`std::pair<const A, B>` in this case) from a list requires it.
+            #if HAVE_MANDATORY_COPY_ELISION
             std::map<std::unique_ptr<int>, std::unique_ptr<float>> map3 = INIT(
                 INIT(std::make_unique<int>(1), std::make_unique<float>(2.3f)),
                 INIT(std::make_unique<int>(2), std::make_unique<float>(3.4f))
             );
             ASSERT_EQ(map3.size(), 2);
-            for (const auto &[key, value] : map3)
+            for (const auto &elem : map3)
             {
-                if (*key == 1)
-                    ASSERT_EQ(*value, 2.3f);
+                if (*elem.first == 1)
+                    ASSERT_EQ(*elem.second, 2.3f);
                 else
-                    ASSERT_EQ(*value, 3.4f);
+                    ASSERT_EQ(*elem.second, 3.4f);
             }
 
             std::map<int, std::atomic_int> map4 = INIT(
@@ -329,22 +392,53 @@ int main()
             ASSERT_EQ(map4.size(), 2);
             ASSERT_EQ(map4.at(1).load(), 2);
             ASSERT_EQ(map4.at(3).load(), 4);
+
+            std::map<std::unique_ptr<int>, std::unique_ptr<float>> map5 = INIT(
+                INIT(nullptr, std::make_unique<float>(2.3f)),
+                INIT(std::make_unique<int>(2), std::make_unique<float>(3.4f))
+            );
+            ASSERT_EQ(map5.size(), 2);
+            for (const auto &elem : map5)
+            {
+                if (!elem.first)
+                {
+                    ASSERT_EQ(*elem.second, 2.3f);
+                }
+                else
+                {
+                    ASSERT_EQ(*elem.first, 2);
+                    ASSERT_EQ(*elem.second, 3.4f);
+                }
+            }
+
+            std::map<int, std::atomic_int> map6 = INIT(
+                INIT(1, 2),
+                INIT(3, 4)
+            );
+            ASSERT_EQ(map6.size(), 2);
+            ASSERT_EQ(map6.at(1).load(), 2);
+            ASSERT_EQ(map6.at(3).load(), 4);
+            #endif
         }
-        #endif
     }
 
     { // Implicit-ness of the conversion operator.
-        static_assert(!std::is_convertible<better_init::DETAIL_BETTER_INIT_CLASS_NAME<int, int>, ContainerWithoutListCtor>::value, "");
-        static_assert(std::is_constructible<ContainerWithoutListCtor, better_init::DETAIL_BETTER_INIT_CLASS_NAME<int, int>>::value, "");
-        (void)INIT(1, 2).to<ContainerWithoutListCtor>();
+        { // Ranges.
+            static_assert(!std::is_convertible<better_init::DETAIL_BETTER_INIT_CLASS_NAME<int, int>, RangeWithoutListCtor>::value, "");
+            static_assert(std::is_constructible<RangeWithoutListCtor, better_init::DETAIL_BETTER_INIT_CLASS_NAME<int, int>>::value, "");
+            (void)INIT(1, 2).to<RangeWithoutListCtor>();
+        }
     }
 
     { // Construction with extra arguments.
-        static_assert(!std::is_convertible<better_init::DETAIL_BETTER_INIT_CLASS_NAME<int, int>, ContainerWithForcedArgs>::value, "");
-        static_assert(!std::is_constructible<ContainerWithForcedArgs, better_init::DETAIL_BETTER_INIT_CLASS_NAME<int, int>>::value, "");
-        static_assert(!is_detected<MakeContainerWithForcedArgs>::value, "");
-        static_assert(is_detected<MakeContainerWithForcedArgs, int, int, int>::value, "");
-        (void)INIT(1, 2, 3).to<ContainerWithForcedArgs>(1, 2, 3);
+        static_assert(!std::is_convertible<better_init::DETAIL_BETTER_INIT_CLASS_NAME<int, int>, RangeWithForcedArgs>::value, "");
+        static_assert(!std::is_constructible<RangeWithForcedArgs, better_init::DETAIL_BETTER_INIT_CLASS_NAME<int, int>>::value, "");
+        static_assert(!is_detected<MakeRangeWithForcedArgs>::value, "");
+        static_assert(is_detected<MakeRangeWithForcedArgs, int, int, int>::value, "");
+        (void)INIT(1, 2, 3).to<RangeWithForcedArgs>(1, 2, 3);
+
+        static_assert(!std::is_convertible<better_init::DETAIL_BETTER_INIT_CLASS_NAME<int, int, int>, NonrangeWithExplicitCtor>::value, "");
+        static_assert(std::is_constructible<NonrangeWithExplicitCtor, better_init::DETAIL_BETTER_INIT_CLASS_NAME<int, int, int>>::value, "");
     }
 
     std::cout << "OK";

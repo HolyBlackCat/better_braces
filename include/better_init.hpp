@@ -66,11 +66,16 @@ namespace better_init
 
         // Whether `T` is implicitly constructible from a braced list of `P...`.
         template <typename Void, typename T, typename ...P>
-        struct implicitly_brace_constructible : std::false_type {};
+        struct implicitly_brace_constructible_helper : std::false_type {};
         template <typename T, typename ...P>
-        struct implicitly_brace_constructible<decltype(accept_parameter<T &&>({declval<P>()...})), T, P...> : std::true_type {}; // Note `T &&`. MSVC is buggy and rejects non-copyable types otherwise.
+        struct implicitly_brace_constructible_helper<decltype(accept_parameter<T &&>({declval<P>()...})), T, P...> : std::true_type {};
+        template <typename T, typename ...P>
+        struct implicitly_brace_constructible : implicitly_brace_constructible_helper<void, T, P...> {};
 
-        // Can be passed to `construct_braced`, in unevaluated expressions.
+        template <typename T, typename ...P>
+        struct nothrow_implicitly_brace_constructible : std::integral_constant<bool, noexcept(accept_parameter<T &&>({declval<P>()...}))> {};
+
+        // Can be passed to `construct_nonrange`, in unevaluated expressions.
         struct dummy_brace_construct_func
         {
             template <typename T>
@@ -94,7 +99,7 @@ namespace better_init
         // Same, but for braced init (for non-ranges), as opposed to initializing ranges from a pair of iterators.
         // Defaults to checking if `T` is implicitly constructible from a braced list of `P...`.
         template <typename Void, typename T, typename ...P>
-        struct allow_implicit_braced_init : detail::implicitly_brace_constructible<void, T, P...> {};
+        struct allow_implicit_nonrange_init : detail::implicitly_brace_constructible<T, P...> {};
 
         // Because of a MSVC quirk (bug, probably?) we can't use a templated `operator T` for our range elements,
         // and must know exactly what we're converting to.
@@ -119,7 +124,7 @@ namespace better_init
         // where `P...` are the list elements, followed by any extra arguments passed to `.to<T>(...)` (or none for a conversion operator).
         // The elements are not passed directly. Instead you pass a function that's called `sizeof...(P)` times.
         template <typename Void, typename T, typename ...P>
-        struct construct_braced
+        struct construct_nonrange
         {
             // Note `TT = T`. The SFINAE condition has to depend on this function's template parameters, otherwise this is a hard error.
             template <typename TT = T, typename F>
@@ -171,10 +176,12 @@ namespace better_init
 
 // The C++ standard version to assume.
 // First, the raw date number.
+#ifndef BETTER_INIT_CXX_STANDARD_DATE
 #ifdef _MSC_VER
 #define BETTER_INIT_CXX_STANDARD_DATE _MSVC_LANG // D:<
 #else
 #define BETTER_INIT_CXX_STANDARD_DATE __cplusplus
+#endif
 #endif
 // Then, the actual version number.
 #ifndef BETTER_INIT_CXX_STANDARD
@@ -191,19 +198,6 @@ namespace better_init
 #endif
 #endif
 
-// Whether `std::iterator_traits` can guess the iterator category and various typedefs. This is a C++20 feature.
-// If this is false, we're forced to include `<iterator>` to specify `std::random_access_iterator_tag`.
-#ifndef BETTER_INIT_SMART_ITERATOR_TRAITS
-#if BETTER_INIT_CXX_STANDARD >= 20
-#define BETTER_INIT_SMART_ITERATOR_TRAITS 1
-#else
-#define BETTER_INIT_SMART_ITERATOR_TRAITS 0
-#endif
-#endif
-#if !BETTER_INIT_SMART_ITERATOR_TRAITS
-#include <iterator>
-#endif
-
 // Whether to allow braces: `init{...}`. Parentheses are always allowed: `init(...)`.
 // Braces require CTAD to work.
 // Note that here and elsewhere in C++, elements in braces are evaluated left-to-right, while in parentheses the evaluation order is unspecified.
@@ -213,6 +207,14 @@ namespace better_init
 #else
 #define BETTER_INIT_ALLOW_BRACES 0
 #endif
+#endif
+
+// We want avoid including the entire `<iterator>` just to get the iterator tag.
+// And we can't use C++20 iterator category detection, because both libstdc++ and libc++ implement it incorrectly, returning a crap category if `::reference` is an rvalue reference.
+// If this is enabled, we try to forward-declare `std::random_access_iterator_tag` in a way suitable for the current standard library, falling back to including `<iterator>`.
+// If this is disabled, we just include `<iterator>`.
+#ifndef BETTER_INIT_FORWARD_DECLARE_ITERATOR_TAG
+#define BETTER_INIT_FORWARD_DECLARE_ITERATOR_TAG 1
 #endif
 
 // How to stop the program when something bad happens.
@@ -262,9 +264,6 @@ namespace better_init
 #define BETTER_INIT_ALLOCATOR_HACK 0
 #endif
 #endif
-#if BETTER_INIT_ALLOCATOR_HACK
-#include <memory> // For `std::allocator_traits`.
-#endif
 
 // When the allocator hack is used, we need a 'may alias' attribute to `reinterpret_cast` safely.
 #ifndef BETTER_INIT_ALLOCATOR_HACK_MAY_ALIAS
@@ -283,6 +282,32 @@ namespace better_init
 #define BETTER_INIT_ALLOCATOR_HACK_IGNORE_EXISTING_CONSTRUCT_FUNC 0
 #endif
 
+
+#if !BETTER_INIT_FORWARD_DECLARE_ITERATOR_TAG
+#include <iterator>
+#else
+#if defined(__GLIBCXX__)
+namespace std _GLIBCXX_VISIBILITY(default)
+{
+    _GLIBCXX_BEGIN_NAMESPACE_VERSION
+    struct random_access_iterator_tag;
+}
+#elif defined(_LIBCPP_VERSION)
+_LIBCPP_BEGIN_NAMESPACE_STD
+struct _LIBCPP_TEMPLATE_VIS random_access_iterator_tag;
+_LIBCPP_END_NAMESPACE_STD
+#elif defined(_MSC_VER)
+_STD_BEGIN
+struct random_access_iterator_tag;
+_STD_END
+#else
+#include <iterator>
+#endif
+#endif
+
+#if BETTER_INIT_ALLOCATOR_HACK
+#include <memory> // For `std::allocator_traits`.
+#endif
 
 #if !BETTER_INIT_HAVE_IS_AGGREGATE
 #include <array> // Need this to specialize `detail::basic_is_range`, see below for details.
@@ -322,6 +347,18 @@ namespace better_init
         template <typename T, typename ...P> struct any_of<T, P...> : std::conditional_t<T::value, T, any_of<P...>> {};
 
         template <typename T> struct negate : std::integral_constant<bool, !T::value> {};
+
+        // Returns true if all types in `P...` are the same.
+        template <typename ...P>
+        struct all_types_same : std::true_type {};
+        template <typename T, typename ...P>
+        struct all_types_same<T, P...> : all_of<std::is_same<T, P>...> {};
+
+        // Returns the first type in a list.
+        template <typename ...P>
+        struct first_type {};
+        template <typename T, typename ...P>
+        struct first_type<T, P...> {using type = T;};
 
         // Our reference classes inherit from this.
         struct ReferenceBase {};
@@ -371,14 +408,14 @@ namespace better_init
 
         // Whether `T` is constructible from a braced list of `P...`.
         template <typename Void, typename T, typename ...P>
-        struct brace_constructible_helper : std::false_type {};
+        struct nonrange_brace_constructible_helper : std::false_type {};
         template <typename T, typename ...P>
-        struct brace_constructible_helper<decltype(void(custom::construct_braced<void, T, P...>{}(detail::dummy_brace_construct_func{}))), T, P...> : std::true_type {};
+        struct nonrange_brace_constructible_helper<decltype(void(custom::construct_nonrange<void, T, P...>{}(detail::dummy_brace_construct_func{}))), T, P...> : std::true_type {};
         template <typename T, typename ...P>
-        struct brace_constructible : brace_constructible_helper<void, T, P...> {};
+        struct nonrange_brace_constructible : nonrange_brace_constructible_helper<void, T, P...> {};
 
         template <typename T, typename ...P>
-        struct nothrow_brace_constructible : std::integral_constant<bool, noexcept(custom::construct_braced<void, T, P...>{}(detail::dummy_brace_construct_func{}))> {};
+        struct nothrow_nonrange_brace_constructible : std::integral_constant<bool, noexcept(custom::construct_nonrange<void, T, P...>{}(detail::dummy_brace_construct_func{}))> {};
 
         // Whether `T` is a valid target type for any conversion operator. We reject const types here.
         // Normally this is not an issue, but GCC 10 in C++14 mode has quirky tendency to try to instantiate conversion operators to const types otherwise (for copy constructors?),
@@ -398,9 +435,14 @@ namespace better_init
     {
       public:
         // Whether this list can be used to initialize a range of `T`s.
-        // I guess we could check `detail::brace_constructible` for each element instead, but it just feels wonky.
         template <typename T> struct can_initialize_elem         : detail::all_of<detail::constructible        <T, P>...> {};
         template <typename T> struct can_nothrow_initialize_elem : detail::all_of<detail::nothrow_constructible<T, P>...> {};
+
+        // Whether all types in `P...` are the same (and there is at least one type). Then we can simplify some logic.
+        // static constexpr bool is_homogeneous = detail::all_types_same<P...>::value && sizeof...(P) > 0;
+        static constexpr bool is_homogeneous = detail::all_types_same<P...>::value && sizeof...(P) > 0;
+        // If all types in `P...` are the same (and there's at least one), returns that type. Otherwise returns an empty struct.
+        using homogeneous_type = typename std::conditional_t<is_homogeneous, detail::first_type<P &&...>, std::enable_if<true, detail::empty>>::type;
 
       private:
         template <typename T>
@@ -412,8 +454,20 @@ namespace better_init
 
             constexpr Reference() {}
 
-          public:
+            // If the list is homogeneous, dereferences the reference into the homogeneous type.
+            // Otherwise returns a reference to our reference.
+            template <typename U = T, std::enable_if_t<detail::dependent_value<U, is_homogeneous>::value, int> = 0>
+            homogeneous_type dereference_if_homogeneous() const
+            {
+                return static_cast<homogeneous_type>(*reinterpret_cast<std::remove_reference_t<homogeneous_type> *>(target));
+            }
+            template <typename U = T, std::enable_if_t<detail::dependent_value<U, !is_homogeneous>::value, int> = 0>
+            const Reference &dereference_if_homogeneous() const
+            {
+                return *this;
+            }
 
+          public:
             // Non-copyable.
             // The list creates and owns all its references, and exposes actual references to them.
             // This is because pre-C++20 iterator requirements force us to return actual references from `*`, and more importantly `[]`.
@@ -421,6 +475,8 @@ namespace better_init
             Reference &operator=(const Reference &) = delete;
 
             // Conversion operators, for empty and non-empty ranges.
+            // Note that those are unnecessary when `is_homogeneous` is true, because in that case our iterator
+            // dereferences directly to `homogeneous_type`.
 
             template <typename U = T, std::enable_if_t<detail::dependent_value<U, sizeof...(P) == 0>::value, int> = 0>
             constexpr operator T() const noexcept(can_nothrow_initialize_elem<T>::value)
@@ -459,22 +515,17 @@ namespace better_init
             const Reference<T> *ref = nullptr;
 
           public:
-            // Need this for the C++20 `std::iterator_traits` auto-detection to kick in.
-            // Note that at least libstdc++'s category detection needs this to match the return type of `*`, except for cvref-qualifiers.
-            // It's tempting to put `void` or some broken type here, to prevent extracting values from the range, which we don't want.
-            // But that causes problems, and just `Reference` is enough, since it's non-copyable anyway.
-            using value_type = Reference<T>;
-            #if !BETTER_INIT_SMART_ITERATOR_TRAITS
+            // Can't use C++20 iterator category auto-detection here, since both libstdc++ and libc++ incorrectly require `reference` to be an lvalue reference.
             using iterator_category = std::random_access_iterator_tag;
-            using reference = Reference<T>;
+            using reference = std::conditional_t<is_homogeneous, homogeneous_type, const Reference<T> &>;
+            using value_type = std::remove_cv_t<std::remove_reference_t<reference>>;
             using pointer = void;
             using difference_type = detail::ptrdiff_t;
-            #endif
 
             constexpr Iterator() noexcept {}
 
             // `LegacyForwardIterator` requires us to return an actual reference here.
-            constexpr const Reference<T> &operator*() const noexcept {return *ref;}
+            constexpr reference operator*() const noexcept {return ref->dereference_if_homogeneous();}
 
             // No `operator->`. This causes C++20 `std::iterator_traits` to guess `pointer_type == void`, which sounds ok to me.
 
@@ -528,7 +579,7 @@ namespace better_init
             constexpr Iterator &operator+=(detail::ptrdiff_t n) noexcept {ref += n; return *this;}
             constexpr Iterator &operator-=(detail::ptrdiff_t n) noexcept {ref -= n; return *this;}
 
-            constexpr const Reference<T> &operator[](detail::ptrdiff_t i) const noexcept
+            constexpr reference operator[](detail::ptrdiff_t i) const noexcept
             {
                 return *(*this + i);
             }
@@ -539,6 +590,12 @@ namespace better_init
         // Can't store `Reference`s here directly, because we can't use a templated `operator T` in our elements,
         // because it doesn't work correctly on MSVC (but not on GCC and Clang).
         std::conditional_t<sizeof...(P) == 0, detail::empty, void *[sizeof...(P) + (sizeof...(P) == 0)]> elems;
+
+        // Returns `elems[i]`, but compiles even if `P...` is empty.
+        template <typename T = DETAIL_BETTER_INIT_CLASS_NAME, std::enable_if_t<detail::dependent_value<T, sizeof...(P) == 0>::value, int> = 0>
+        void *ith_elem(detail::size_t i) const {(void)i; return nullptr;}
+        template <typename T = DETAIL_BETTER_INIT_CLASS_NAME, std::enable_if_t<detail::dependent_value<T, sizeof...(P) != 0>::value, int> = 0>
+        void *ith_elem(detail::size_t i) const {return elems[i];}
 
         // See the public `_helper`-less versions below.
         // Note that we have to use a specialization here. Directly inheriting from `integral_constant` isn't enough, because it's not SFINAE-friendly (with respect to the `element_type<T>::type`).
@@ -553,9 +610,9 @@ namespace better_init
         template <typename T, typename ...Q> struct can_nothrow_initialize_range : can_nothrow_initialize_range_helper<void, T, Q...> {};
         // Whether this list can be used to initialize a non-range of type `T` (by forwarding arguments to the constructor), with extra constructor arguments `Q...`.
         // NOTE: We check `!is_range<T>` here to avoid the uniform init fiasco, at least for our lists.
-        // NOTE: We need short-circuiting here, otherwise libstdc++ 10 in C++14 mode fails with a hard error in `brace_constructible`.
-        template <typename T, typename ...Q> struct can_initialize_braced         : detail::all_of<detail::negate<custom::is_range<T>>, detail::brace_constructible        <T, Q...>> {};
-        template <typename T, typename ...Q> struct can_nothrow_initialize_braced : detail::all_of<detail::negate<custom::is_range<T>>, detail::nothrow_brace_constructible<T, Q...>> {};
+        // NOTE: We need short-circuiting here, otherwise libstdc++ 10 in C++14 mode fails with a hard error in `nonrange_brace_constructible`.
+        template <typename T, typename ...Q> struct can_initialize_nonrange         : detail::all_of<detail::negate<custom::is_range<T>>, detail::nonrange_brace_constructible        <T, P..., Q...>> {};
+        template <typename T, typename ...Q> struct can_nothrow_initialize_nonrange : detail::all_of<detail::negate<custom::is_range<T>>, detail::nothrow_nonrange_brace_constructible<T, P..., Q...>> {};
 
         // The constructor from a braced (or parenthesized) list.
         // No `[[nodiscard]]` because GCC 9 complains. Having it on the entire class should be enough.
@@ -620,28 +677,28 @@ namespace better_init
         // We could support `(...)` instead, but it just doesn't feel right.
         // Note that the uniform init fiasco is impossible for our lists, since we allow braced init only if `detail::is_range<T>` is false.
 
-        template <typename T, detail::enable_if_valid_conversion_target<T> = 0, std::enable_if_t<can_initialize_braced<T>::value && custom::allow_implicit_braced_init<void, T, P...>::value, int> = 0>
-        BETTER_INIT_NODISCARD constexpr operator T() const && noexcept(can_nothrow_initialize_braced<T>::value)
+        template <typename T, detail::enable_if_valid_conversion_target<T> = 0, std::enable_if_t<can_initialize_nonrange<T>::value && custom::allow_implicit_nonrange_init<void, T, P...>::value, int> = 0>
+        BETTER_INIT_NODISCARD constexpr operator T() const && noexcept(can_nothrow_initialize_nonrange<T>::value)
         {
             // Don't want to include `<utility>` for `std::move`.
             return static_cast<const DETAIL_BETTER_INIT_CLASS_NAME &&>(*this).to<T>();
         }
-        template <typename T, detail::enable_if_valid_conversion_target<T> = 0, std::enable_if_t<can_initialize_braced<T>::value && !custom::allow_implicit_braced_init<void, T, P...>::value, int> = 0>
-        BETTER_INIT_NODISCARD constexpr explicit operator T() const && noexcept(can_nothrow_initialize_braced<T>::value)
+        template <typename T, detail::enable_if_valid_conversion_target<T> = 0, std::enable_if_t<can_initialize_nonrange<T>::value && !custom::allow_implicit_nonrange_init<void, T, P...>::value, int> = 0>
+        BETTER_INIT_NODISCARD constexpr explicit operator T() const && noexcept(can_nothrow_initialize_nonrange<T>::value)
         {
             // Don't want to include `<utility>` for `std::move`.
             return static_cast<const DETAIL_BETTER_INIT_CLASS_NAME &&>(*this).to<T>();
         }
 
-        template <typename T, typename ...Q, std::enable_if_t<can_initialize_braced<T, Q...>::value, int> = 0>
-        BETTER_INIT_NODISCARD constexpr T to(Q &&... extra_args) const && noexcept(can_nothrow_initialize_braced<T, Q...>::value)
+        template <typename T, typename ...Q, std::enable_if_t<can_initialize_nonrange<T, Q...>::value, int> = 0>
+        BETTER_INIT_NODISCARD constexpr T to(Q &&... extra_args) const && noexcept(can_nothrow_initialize_nonrange<T, Q...>::value)
         {
             std::size_t i = 0;
-            void *extra_arr[] = {const_cast<void *>(static_cast<const void *>(&extra_args))..., nullptr}; // The extra `nullptr` `allows sizeof...(Q) == 0`.
-            return custom::construct_braced<void, T, P..., Q...>{}([&](auto tag) -> auto &&
+            void *extra_arr[] = {const_cast<void *>(static_cast<const void *>(&extra_args))..., nullptr}; // The extra `nullptr` allows `sizeof...(Q) == 0`.
+            return custom::construct_nonrange<void, T, P..., Q...>{}([&](auto tag) -> auto &&
             {
                 using type = typename decltype(tag)::type;
-                void *source = i < sizeof...(P) ? elems[i] : extra_arr[i - sizeof...(P)];
+                void *source = i < sizeof...(P) ? ith_elem(i) : extra_arr[i - sizeof...(P)];
                 i++;
                 return static_cast<type>(*reinterpret_cast<std::remove_reference_t<type> *>(source));
             });
@@ -832,8 +889,6 @@ namespace better_init
             T, Iter, P...
         >
         {
-            using elem_type = typename element_type<T>::type;
-
             using fixed_container = typename detail::allocator_hack::substitute_allocator<T>::type;
 
             constexpr T operator()(Iter begin, Iter end, P &&... params) const
