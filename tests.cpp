@@ -284,7 +284,7 @@ int main()
         ASSERT(vec1[1] != nullptr && *vec1[1] == 42);
     }
 
-    { // Brace initialization, as opposed to initialization with pairs iterators.
+    { // Brace initialization, as opposed to initialization with a pair of iterators.
         std::array<std::unique_ptr<int>, 2> arr1 = INIT(std::unique_ptr<int>(), std::make_unique<int>(42));
         ASSERT(arr1[0] == nullptr);
         ASSERT(arr1[1] != nullptr && *arr1[1] == 42);
@@ -313,9 +313,8 @@ int main()
     }
 
     { // Maps.
-        { // From lists of pairs.0
+        { // From lists of pairs.
             // Homogeneous lists.
-
             std::map<std::unique_ptr<int>, std::unique_ptr<float>> map1 = INIT(
                 std::make_pair(std::make_unique<int>(1), std::make_unique<float>(2.3f)),
                 std::make_pair(std::make_unique<int>(2), std::make_unique<float>(3.4f))
@@ -338,7 +337,7 @@ int main()
             ASSERT_EQ(map2.at(3).load(), 4);
 
             // Heterogeneous lists.
-            // For maps, the element type is never movable (because the first template parameter of the pair is const),
+            // For maps, the element type is never movable (because the first template argument of the pair is const),
             // so we need the mandatory copy elision regardless of the map template arguments.
             #if HAVE_MANDATORY_COPY_ELISION
             std::map<std::unique_ptr<int>, std::unique_ptr<float>> map3 = INIT(
@@ -360,7 +359,7 @@ int main()
             }
 
             std::map<int, std::atomic_int> map4 = INIT(
-                std::make_pair(1, 2),
+                std::make_pair(short(1), 2),
                 std::make_pair(3, 4)
             );
             ASSERT_EQ(map4.size(), 2);
@@ -412,7 +411,7 @@ int main()
             }
 
             std::map<int, std::atomic_int> map6 = INIT(
-                INIT(1, 2),
+                INIT(short(1), 2),
                 INIT(3, 4)
             );
             ASSERT_EQ(map6.size(), 2);
