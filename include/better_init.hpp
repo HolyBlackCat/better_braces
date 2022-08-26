@@ -53,6 +53,7 @@ namespace better_init
         };
 
         // Don't want to include extra headers, so I roll my own typedefs.
+        using nullptr_t = decltype(nullptr);
         using size_t = decltype(sizeof(int));
         using ptrdiff_t = decltype((int *)nullptr - (int *)nullptr);
         using uintptr_t = size_t;
@@ -74,13 +75,6 @@ namespace better_init
 
         template <typename T, typename ...P>
         struct nothrow_implicitly_brace_constructible : std::integral_constant<bool, noexcept(accept_parameter<T &&>({declval<P>()...}))> {};
-
-        // Can be passed to `construct_nonrange`, in unevaluated expressions.
-        struct dummy_brace_construct_func
-        {
-            template <typename T>
-            T operator()(tag<T>) const noexcept; // Not defined.
-        };
 
         // The default implementation for `custom::element_type`, see below.
         template <typename T, typename = void>
@@ -112,7 +106,7 @@ namespace better_init
         template <typename Void, typename T, typename Iter, typename ...P>
         struct construct_range
         {
-            template <typename TT = T, std::enable_if_t<std::is_constructible<TT, Iter, Iter, P...>::value, int> = 0>
+            template <typename TT = T, std::enable_if_t<std::is_constructible<TT, Iter, Iter, P...>::value, detail::nullptr_t> = nullptr>
             constexpr T operator()(Iter begin, Iter end, P &&... params) const noexcept(std::is_nothrow_constructible<T, Iter, Iter, P...>::value)
             {
                 // Don't want to include `<utility>` for `std::move` or `std::forward`.
@@ -122,17 +116,16 @@ namespace better_init
 
         // How to construct `T` (which is not a range) from a braced list. Defaults to `T{P...}`,
         // where `P...` are the list elements, followed by any extra arguments passed to `.to<T>(...)` (or none for a conversion operator).
-        // The elements are not passed directly. Instead you pass a function that's called `sizeof...(P)` times.
         template <typename Void, typename T, typename ...P>
         struct construct_nonrange
         {
             // Note `TT = T`. The SFINAE condition has to depend on this function's template parameters, otherwise this is a hard error.
-            template <typename TT = T, typename F>
-            constexpr auto operator()(F &&func) const
-            noexcept(noexcept(TT{func(tag<P &&>{})...}))
-            -> decltype(TT{func(tag<P &&>{})...})
+            template <typename TT = T>
+            constexpr auto operator()(P &&... params) const
+            noexcept(noexcept(TT{static_cast<P &&>(params)...}))
+            -> decltype(TT{static_cast<P &&>(params)...})
             {
-                return T{func(tag<P &&>{})...};
+                return T{static_cast<P &&>(params)...};
             }
         };
     }
@@ -360,27 +353,227 @@ namespace better_init
         template <typename T, typename ...P>
         struct first_type<T, P...> {using type = T;};
 
+        // We use a custom tuple class to avoid including `<tuple>` and because we need some extra functionality.
+
+        // A helper class for our tuple implementation.
+        template <typename ...P>
+        struct tuple_impl_regular_low
+        {
+            // See below.
+            template <typename F, typename ...Q>
+            constexpr decltype(auto) apply(F &&func, Q &&... params) const
+            {
+                return static_cast<F &&>(func)(static_cast<Q &&>(params)...);
+            }
+        };
+        template <typename T>
+        struct tuple_impl_regular_low<T>
+        {
+            using first_t = std::remove_reference_t<T> *;
+            first_t first;
+
+            constexpr tuple_impl_regular_low(first_t first) : first(first) {}
+
+            // Returns an element type by its index.
+            template <size_t I>
+            using elem_t = T;
+
+            // Returns an element by its index.
+            template <size_t I>
+            constexpr first_t get() const
+            {
+                static_assert(I == 0, "Internal error: The tuple index is out of range.");
+                return first;
+            }
+
+            // Fills the array with the instances of `F::func<I>`.
+            template <typename F, size_t I = 0, typename E>
+            static constexpr void populate_func_array(E *array)
+            {
+                *array = F::template func<I>;
+            }
+
+            // Calls the function with the specified parameters, followed by the tuple elements.
+            // The extra parameters are normally the preceding tuple elements.
+            template <typename F, typename ...Q>
+            constexpr decltype(auto) apply(F &&func, Q &&... params) const
+            {
+                return static_cast<F &&>(func)(static_cast<Q &&>(params)..., static_cast<T &&>(*first));
+            }
+        };
+        template <typename T, typename ...P>
+        struct tuple_impl_regular_low<T, P...>
+        {
+            using first_t = std::remove_reference_t<T> *;
+            first_t first;
+
+            using next_t = tuple_impl_regular_low<P...>;
+            next_t next;
+
+            constexpr tuple_impl_regular_low(first_t first, std::remove_reference_t<P> *... next) : first(first), next(next...) {}
+
+            template <size_t I>
+            using elem_t = std::conditional_t<I == 0, T, typename next_t::template elem_t<I-1>>;
+
+            template <size_t I, std::enable_if_t<I == 0, nullptr_t> = nullptr>
+            constexpr first_t get() const
+            {
+                return first;
+            }
+            template <size_t I, std::enable_if_t<(I > 0), nullptr_t> = nullptr>
+            constexpr decltype(next.template get<I-1>()) get() const
+            {
+                return next.template get<I-1>();
+            }
+
+            template <typename F, size_t I = 0, typename E>
+            static constexpr void populate_func_array(E *array)
+            {
+                *array = F::template func<I>;
+                next_t::template populate_func_array<F, I+1>(array + 1);
+            }
+
+            template <typename F, typename ...Q>
+            constexpr decltype(auto) apply(F &&func, Q &&... params) const
+            {
+                return next.apply(static_cast<F &&>(func), static_cast<Q &&>(params)..., static_cast<T &&>(*first));
+            }
+        };
+        // The tuple implementation itself.
+        template <typename ...P>
+        class tuple_impl_regular : tuple_impl_regular_low<P...>
+        {
+            using base_t = tuple_impl_regular_low<P...>;
+
+            // Various helpers for `.apply()` defined below.
+
+            template <typename F, typename ...Q>
+            struct make_elem_func
+            {
+                template <size_t I>
+                static constexpr typename F::return_type func(const base_t &base, Q &&... params)
+                {
+                    return F::template func<typename base_t::template elem_t<I>>(*base.template get<I>(), static_cast<Q &&>(params)...);
+                }
+            };
+
+            template <typename F, typename ...Q>
+            struct elem_func_array {typename F::return_type (*funcs[sizeof...(P)])(const base_t &, Q &&...){};};
+
+            template <typename F, typename ...Q>
+            static constexpr elem_func_array<F, Q &&...> make_elem_func_array()
+            {
+                elem_func_array<F, Q &&...> ret;
+                base_t::template populate_func_array<make_elem_func<F, Q &&...>>(ret.funcs);
+                return ret;
+            }
+
+          public:
+            using base_t::base_t;
+
+            // Applies a custom function to the `i`th element.
+            // `F` must have `::return_type` and `::func<T>(T &)`, where `T` receives the element type, and can be an rvalue reference.
+            template <typename F, typename ...Q, std::enable_if_t<dependent_value<F, sizeof...(P) != 0>::value, nullptr_t> = nullptr>
+            constexpr typename F::return_type apply_to_elem(size_t i, Q &&... params) const
+            {
+                constexpr elem_func_array<F, Q &&...> array = make_elem_func_array<F, Q &&...>();
+                return array.funcs[i](*this, static_cast<Q &&>(params)...);
+            }
+            template <typename F, typename ...Q, std::enable_if_t<dependent_value<F, sizeof...(P) == 0>::value, nullptr_t> = nullptr>
+            constexpr typename F::return_type apply_to_elem(size_t, Q &&...) const
+            {
+                abort();
+            }
+
+            // Applies a custom function to all the elements at once. `params...` are prepended to the tuple elements.
+            using base_t::apply; // decltype(auto) apply(F &&func, Q &&... params);
+        };
+
+        // A simple alternative array-based tuple implementation, for homogeneous non-empty tuples.
+        template <typename T, size_t N>
+        class tuple_impl_array
+        {
+          public:
+            // We want to keep this an aggregate, for simplicity.
+            std::remove_reference_t<T> *values[N];
+
+            template <typename F, typename ...Q>
+            constexpr typename F::return_type apply_to_elem(size_t i, Q &&... params) const
+            {
+                return F::template func<T>(*values[i], static_cast<Q &&>(params)...);
+            }
+
+            template <size_t I = 0, typename F, typename ...Q, std::enable_if_t<I == N-1, nullptr_t> = nullptr>
+            decltype(auto) apply(F &&func, Q &&... params) const
+            {
+                return static_cast<F &&>(func)(static_cast<Q &&>(params)..., static_cast<T &&>(*values[I]));
+            }
+            template <size_t I = 0, typename F, typename ...Q, std::enable_if_t<I != N-1, nullptr_t> = nullptr>
+            decltype(auto) apply(F &&func, Q &&... params) const
+            {
+                return apply<I+1>(static_cast<F &&>(func), static_cast<Q &&>(params)..., static_cast<T &&>(*values[I]));
+            }
+        };
+
+        // Selects an implementation for our tuple. If all element types are the same (and there is at least one),
+        // a simplified array-based implementation is used.
+        template <typename Void, typename ...P>
+        struct tuple_impl_selector
+        {
+            using type = tuple_impl_regular<P...>;
+        };
+        template <typename ...P>
+        struct tuple_impl_selector<std::enable_if_t<all_types_same<P...>::value && sizeof...(P) != 0>, P...>
+        {
+            using type = tuple_impl_array<typename first_type<P...>::type, sizeof...(P)>;
+        };
+
+        // Our custom tuple.
+        template <typename ...P>
+        using tuple = typename tuple_impl_selector<void, P...>::type;
+
+        // Calls `.apply()` on a tuple.
+        template <typename F, typename T>
+        struct apply_functor
+        {
+            F &&func;
+            T &&tuple;
+
+            template <typename ...P>
+            constexpr decltype(auto) operator()(P &&... params) const
+            {
+                return static_cast<T &&>(tuple).apply(static_cast<F &&>(func), static_cast<P &&>(params)...);
+            }
+        };
+
         // Our reference classes inherit from this.
         struct ReferenceBase {};
 
-        // This would be a lambda deep inside Reference, but constexpr lambdas are a C++17 feature.
-        // `T` is the desired type, `U` is a forwarding reference type that `ptr` points to.
-        template <typename T, typename U>
-        constexpr T construct_from_elem(void *ptr)
+        template <typename T>
+        struct construct_from_elem
         {
-            // Don't want to include `<utility>` for `std::forward`.
-            return T(static_cast<U &&>(*reinterpret_cast<std::remove_reference_t<U> *>(ptr)));
-        }
+            using return_type = T;
+            template <typename U>
+            static constexpr T func(U &source)
+            {
+                return T(static_cast<U &&>(source));
+            }
+        };
 
         #if BETTER_INIT_ALLOCATOR_HACK
         namespace allocator_hack
         {
-            // Constructs a `T` at `target` using allocator `alloc`, passing a forwarding reference to `U` as an argument, which points to `ptr`.
-            template <typename T, typename U, typename A>
-            constexpr void construct_from_elem_at(A &alloc, void *ptr, T *target)
+            // Constructs a `T` at `target` using allocator `A`, passing a forwarding reference to `U` as an argument.
+            template <typename T, typename A>
+            struct construct_from_elem_at
             {
-                std::allocator_traits<A>::template construct(alloc, target, static_cast<U &&>(*reinterpret_cast<std::remove_reference_t<U> *>(ptr)));
-            }
+                using return_type = T;
+                template <typename U>
+                static constexpr void func(U &source, A &alloc, T *target)
+                {
+                    std::allocator_traits<A>::template construct(alloc, target, static_cast<U &&>(source));
+                }
+            };
         }
         #endif
 
@@ -410,12 +603,12 @@ namespace better_init
         template <typename Void, typename T, typename ...P>
         struct nonrange_brace_constructible_helper : std::false_type {};
         template <typename T, typename ...P>
-        struct nonrange_brace_constructible_helper<decltype(void(custom::construct_nonrange<void, T, P...>{}(detail::dummy_brace_construct_func{}))), T, P...> : std::true_type {};
+        struct nonrange_brace_constructible_helper<decltype(void(custom::construct_nonrange<void, T, P...>{}(declval<P>()...))), T, P...> : std::true_type {};
         template <typename T, typename ...P>
         struct nonrange_brace_constructible : nonrange_brace_constructible_helper<void, T, P...> {};
 
         template <typename T, typename ...P>
-        struct nothrow_nonrange_brace_constructible : std::integral_constant<bool, noexcept(custom::construct_nonrange<void, T, P...>{}(detail::dummy_brace_construct_func{}))> {};
+        struct nothrow_nonrange_brace_constructible : std::integral_constant<bool, noexcept(custom::construct_nonrange<void, T, P...>{}(declval<P>()...))> {};
 
         // Whether `T` is a valid target type for any conversion operator. We reject const types here.
         // Normally this is not an issue, but GCC 10 in C++14 mode has quirky tendency to try to instantiate conversion operators to const types otherwise (for copy constructors?),
@@ -445,24 +638,26 @@ namespace better_init
         using homogeneous_type = typename std::conditional_t<is_homogeneous, detail::first_type<P &&...>, std::enable_if<true, detail::empty>>::type;
 
       private:
+        using tuple_t = detail::tuple<P &&...>;
+
         template <typename T>
         class Reference : public detail::ReferenceBase
         {
             friend DETAIL_BETTER_INIT_CLASS_NAME;
-            void *target = nullptr;
+            const tuple_t *target = nullptr;
             detail::size_t index = 0;
 
             constexpr Reference() {}
 
             // If the list is homogeneous, dereferences the reference into the homogeneous type.
             // Otherwise returns a reference to our reference.
-            template <typename U = T, std::enable_if_t<detail::dependent_value<U, is_homogeneous>::value, int> = 0>
-            homogeneous_type dereference_if_homogeneous() const
+            template <typename U = T, std::enable_if_t<detail::dependent_value<U, is_homogeneous>::value, detail::nullptr_t> = nullptr>
+            constexpr homogeneous_type dereference_if_homogeneous() const
             {
-                return static_cast<homogeneous_type>(*reinterpret_cast<std::remove_reference_t<homogeneous_type> *>(target));
+                return static_cast<homogeneous_type>(*target->values[index]);
             }
-            template <typename U = T, std::enable_if_t<detail::dependent_value<U, !is_homogeneous>::value, int> = 0>
-            const Reference &dereference_if_homogeneous() const
+            template <typename U = T, std::enable_if_t<detail::dependent_value<U, !is_homogeneous>::value, detail::nullptr_t> = nullptr>
+            constexpr const Reference &dereference_if_homogeneous() const
             {
                 return *this;
             }
@@ -474,36 +669,19 @@ namespace better_init
             Reference(const Reference &) = delete;
             Reference &operator=(const Reference &) = delete;
 
-            // Conversion operators, for empty and non-empty ranges.
-            // Note that those are unnecessary when `is_homogeneous` is true, because in that case our iterator
+            // Note that this is unnecessary when `is_homogeneous` is true, because in that case our iterator
             // dereferences directly to `homogeneous_type`.
-
-            template <typename U = T, std::enable_if_t<detail::dependent_value<U, sizeof...(P) == 0>::value, int> = 0>
             constexpr operator T() const noexcept(can_nothrow_initialize_elem<T>::value)
             {
-                // Note: This is intentionally not a SFINAE check nor a `static_assert`, to support init from empty lists.
-                detail::abort();
-            }
-            template <typename U = T, std::enable_if_t<detail::dependent_value<U, sizeof...(P) != 0>::value, int> = 0>
-            constexpr operator T() const noexcept(can_nothrow_initialize_elem<T>::value)
-            {
-                constexpr T (*lambdas[])(void *) = {detail::construct_from_elem<T, P>...};
-                return lambdas[index](target);
+                return target->template apply_to_elem<detail::construct_from_elem<T>>(index);
             }
 
             #if BETTER_INIT_ALLOCATOR_HACK
-            // Those construct an object at the specified address.
-
-            template <typename U = T, typename Alloc, std::enable_if_t<detail::dependent_value<U, sizeof...(P) == 0>::value, int> = 0>
-            constexpr void allocator_hack_construct_at(Alloc &, T *) const noexcept(can_nothrow_initialize_elem<T>::value)
-            {
-                detail::abort();
-            }
-            template <typename U = T, typename Alloc, std::enable_if_t<detail::dependent_value<U, sizeof...(P) != 0>::value, int> = 0>
+            // Constructs an object at the specified address, using an allocator.
+            template <typename Alloc>
             constexpr void allocator_hack_construct_at(Alloc &alloc, T *location) const noexcept(can_nothrow_initialize_elem<T>::value)
             {
-                constexpr void (*lambdas[])(Alloc &, void *, T *) = {detail::allocator_hack::construct_from_elem_at<T, P, Alloc>...};
-                return lambdas[index](alloc, target, location);
+                return target->template apply_to_elem<detail::allocator_hack::construct_from_elem_at<T, Alloc>>(index, alloc, location);
             }
             #endif
         };
@@ -585,17 +763,10 @@ namespace better_init
             }
         };
 
-        // Could use `std::array`, but want to use less headers.
         // Could use `[[no_unique_address]]`, but it's our only member variable anyway.
         // Can't store `Reference`s here directly, because we can't use a templated `operator T` in our elements,
         // because it doesn't work correctly on MSVC (but not on GCC and Clang).
-        std::conditional_t<sizeof...(P) == 0, detail::empty, void *[sizeof...(P) + (sizeof...(P) == 0)]> elems;
-
-        // Returns `elems[i]`, but compiles even if `P...` is empty.
-        template <typename T = DETAIL_BETTER_INIT_CLASS_NAME, std::enable_if_t<detail::dependent_value<T, sizeof...(P) == 0>::value, int> = 0>
-        void *ith_elem(detail::size_t i) const {(void)i; return nullptr;}
-        template <typename T = DETAIL_BETTER_INIT_CLASS_NAME, std::enable_if_t<detail::dependent_value<T, sizeof...(P) != 0>::value, int> = 0>
-        void *ith_elem(detail::size_t i) const {return elems[i];}
+        tuple_t elems;
 
         // See the public `_helper`-less versions below.
         // Note that we have to use a specialization here. Directly inheriting from `integral_constant` isn't enough, because it's not SFINAE-friendly (with respect to the `element_type<T>::type`).
@@ -617,7 +788,7 @@ namespace better_init
         // The constructor from a braced (or parenthesized) list.
         // No `[[nodiscard]]` because GCC 9 complains. Having it on the entire class should be enough.
         constexpr DETAIL_BETTER_INIT_CLASS_NAME(P &&... params) noexcept
-            : elems{const_cast<void *>(static_cast<const void *>(&params))...}
+            : elems{&params...}
         {}
 
         // Not copyable.
@@ -629,14 +800,14 @@ namespace better_init
         // Conversions to ranges.
 
         // Implicit conversion to a container. Implicit-ness is only enabled when it has a `std::initializer_list` constructor.
-        template <typename T, detail::enable_if_valid_conversion_target<T> = 0, std::enable_if_t<can_initialize_range<T>::value && custom::allow_implicit_range_init<T>::value, int> = 0>
+        template <typename T, detail::enable_if_valid_conversion_target<T> = 0, std::enable_if_t<can_initialize_range<T>::value && custom::allow_implicit_range_init<T>::value, detail::nullptr_t> = nullptr>
         BETTER_INIT_NODISCARD constexpr operator T() const && noexcept(can_nothrow_initialize_range<T>::value)
         {
             // Don't want to include `<utility>` for `std::move`.
             return static_cast<const DETAIL_BETTER_INIT_CLASS_NAME &&>(*this).to<T>();
         }
         // Explicit conversion to a container.
-        template <typename T, detail::enable_if_valid_conversion_target<T> = 0, std::enable_if_t<can_initialize_range<T>::value && !custom::allow_implicit_range_init<T>::value, int> = 0>
+        template <typename T, detail::enable_if_valid_conversion_target<T> = 0, std::enable_if_t<can_initialize_range<T>::value && !custom::allow_implicit_range_init<T>::value, detail::nullptr_t> = nullptr>
         BETTER_INIT_NODISCARD constexpr explicit operator T() const && noexcept(can_nothrow_initialize_range<T>::value)
         {
             // Don't want to include `<utility>` for `std::move`.
@@ -644,14 +815,14 @@ namespace better_init
         }
 
         // Conversion to a container with extra arguments (such as an allocator).
-        template <typename T, typename ...Q, std::enable_if_t<can_initialize_range<T, Q...>::value && sizeof...(P) == 0, int> = 0>
+        template <typename T, typename ...Q, std::enable_if_t<can_initialize_range<T, Q...>::value && sizeof...(P) == 0, detail::nullptr_t> = nullptr>
         BETTER_INIT_NODISCARD constexpr T to(Q &&... extra_args) const && noexcept(can_nothrow_initialize_range<T, Q...>::value)
         {
             using elem_type = typename custom::element_type<T>::type;
             return custom::construct_range<void, T, Iterator<elem_type>, Q...>{}(Iterator<elem_type>{}, Iterator<elem_type>{}, static_cast<Q &&>(extra_args)...);
         }
         // Conversion to a container with extra arguments (such as an allocator).
-        template <typename T, typename ...Q, std::enable_if_t<can_initialize_range<T, Q...>::value && sizeof...(P) != 0, int> = 0>
+        template <typename T, typename ...Q, std::enable_if_t<can_initialize_range<T, Q...>::value && sizeof...(P) != 0, detail::nullptr_t> = nullptr>
         BETTER_INIT_NODISCARD constexpr T to(Q &&... extra_args) const && noexcept(can_nothrow_initialize_range<T, Q...>::value)
         {
             using elem_type = typename custom::element_type<T>::type;
@@ -662,7 +833,7 @@ namespace better_init
             Reference<elem_type> refs[sizeof...(P)];
             for (detail::size_t i = 0; i < sizeof...(P); i++)
             {
-                refs[i].target = elems[i];
+                refs[i].target = &elems;
                 refs[i].index = i;
             }
 
@@ -677,31 +848,25 @@ namespace better_init
         // We could support `(...)` instead, but it just doesn't feel right.
         // Note that the uniform init fiasco is impossible for our lists, since we allow braced init only if `detail::is_range<T>` is false.
 
-        template <typename T, detail::enable_if_valid_conversion_target<T> = 0, std::enable_if_t<can_initialize_nonrange<T>::value && custom::allow_implicit_nonrange_init<void, T, P...>::value, int> = 0>
+        template <typename T, detail::enable_if_valid_conversion_target<T> = 0, std::enable_if_t<can_initialize_nonrange<T>::value && custom::allow_implicit_nonrange_init<void, T, P...>::value, detail::nullptr_t> = nullptr>
         BETTER_INIT_NODISCARD constexpr operator T() const && noexcept(can_nothrow_initialize_nonrange<T>::value)
         {
             // Don't want to include `<utility>` for `std::move`.
             return static_cast<const DETAIL_BETTER_INIT_CLASS_NAME &&>(*this).to<T>();
         }
-        template <typename T, detail::enable_if_valid_conversion_target<T> = 0, std::enable_if_t<can_initialize_nonrange<T>::value && !custom::allow_implicit_nonrange_init<void, T, P...>::value, int> = 0>
+        template <typename T, detail::enable_if_valid_conversion_target<T> = 0, std::enable_if_t<can_initialize_nonrange<T>::value && !custom::allow_implicit_nonrange_init<void, T, P...>::value, detail::nullptr_t> = nullptr>
         BETTER_INIT_NODISCARD constexpr explicit operator T() const && noexcept(can_nothrow_initialize_nonrange<T>::value)
         {
             // Don't want to include `<utility>` for `std::move`.
             return static_cast<const DETAIL_BETTER_INIT_CLASS_NAME &&>(*this).to<T>();
         }
 
-        template <typename T, typename ...Q, std::enable_if_t<can_initialize_nonrange<T, Q...>::value, int> = 0>
+        template <typename T, typename ...Q, std::enable_if_t<can_initialize_nonrange<T, Q...>::value, detail::nullptr_t> = nullptr>
         BETTER_INIT_NODISCARD constexpr T to(Q &&... extra_args) const && noexcept(can_nothrow_initialize_nonrange<T, Q...>::value)
         {
-            std::size_t i = 0;
-            void *extra_arr[] = {const_cast<void *>(static_cast<const void *>(&extra_args))..., nullptr}; // The extra `nullptr` allows `sizeof...(Q) == 0`.
-            return custom::construct_nonrange<void, T, P..., Q...>{}([&](auto tag) -> auto &&
-            {
-                using type = typename decltype(tag)::type;
-                void *source = i < sizeof...(P) ? ith_elem(i) : extra_arr[i - sizeof...(P)];
-                i++;
-                return static_cast<type>(*reinterpret_cast<std::remove_reference_t<type> *>(source));
-            });
+            detail::tuple<Q &&...> extra_tuple{&extra_args...};
+            using func_t = custom::construct_nonrange<void, T, P..., Q...>;
+            return extra_tuple.apply(detail::apply_functor<func_t, const tuple_t &>{func_t{}, elems});
         }
     };
 
