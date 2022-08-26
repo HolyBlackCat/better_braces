@@ -167,6 +167,12 @@ namespace better_init
 #define BETTER_INIT_IDENTIFIER init
 #endif
 
+// Whether to automatically import `better_init::init{...}` (or rather `better_init::BETTER_INIT_IDENTIFIER{...}`)
+// to the global namespace;
+#ifndef BETTER_INIT_IN_GLOBAL_NAMESPACE
+#define BETTER_INIT_IN_GLOBAL_NAMESPACE 1
+#endif
+
 // The C++ standard version to assume.
 // First, the raw date number.
 #ifndef BETTER_INIT_CXX_STANDARD_DATE
@@ -885,7 +891,9 @@ namespace better_init
     #endif
 }
 
+#if BETTER_INIT_IN_GLOBAL_NAMESPACE
 using better_init::BETTER_INIT_IDENTIFIER;
+#endif
 
 
 // See the macro definition for details.
