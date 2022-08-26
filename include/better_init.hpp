@@ -25,6 +25,11 @@
 #include <initializer_list>
 #include <type_traits>
 
+// The version number: `major*10000 + minor*100 + patch`.
+#ifndef BETTER_INIT_VERSION
+#define BETTER_INIT_VERSION 100 // 0.1.0
+#endif
+
 // This file is included by this header automatically, if it exists.
 // Put your customizations here.
 // You can redefine various macros defined below (in the config file, or elsewhere),
