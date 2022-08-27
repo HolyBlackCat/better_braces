@@ -237,14 +237,18 @@ struct ConstexprRange
     using value_type = T;
     value_type sum = 0;
 
+    // I tried to find the sum using the dummy array trick, but MSVC gets an ICE on it. D:<
+    constexpr int calc_sum() {return 0;}
+    template <typename ...Q>
+    constexpr int calc_sum(int first, Q ...next) {return first + (calc_sum)(next...);}
+
     template <typename U>
     constexpr ConstexprRange(U begin, U end, P ...extra)
     {
         while (begin != end)
             sum += *begin++;
 
-        int dummy[] = {(void(sum += extra), 0)..., 0};
-        (void)dummy;
+        sum += calc_sum(extra...);
     }
 };
 
