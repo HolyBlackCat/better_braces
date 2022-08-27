@@ -327,7 +327,7 @@ namespace better_init
         #else
         // No `std::is_aggregate` in C++14, so we fall back to assuming that only `std::array` is an aggregate.
         // If this is problematic, specialize either this template or `custom::is_range` for your type.
-        template <typename T, std::size_t N>
+        template <typename T, size_t N>
         struct is_aggregate<std::array<T, N>> : std::true_type {};
         #endif
 
@@ -597,7 +597,7 @@ namespace better_init
         struct constructible : constructible_helper<void, T, P...> {};
 
         template <typename T, typename ...P>
-        struct nothrow_constructible : std::integral_constant<bool, noexcept(T(std::declval<P>()...))> {};
+        struct nothrow_constructible : std::integral_constant<bool, noexcept(T(declval<P>()...))> {};
 
         // Whether `T` is constructible from a pair of `Iter`s, possibly with extra arguments.
         template <typename Void, typename T, typename Iter, typename ...P>
