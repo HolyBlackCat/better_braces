@@ -27,7 +27,7 @@
 
 // The version number: `major*10000 + minor*100 + patch`.
 #ifndef BETTER_INIT_VERSION
-#define BETTER_INIT_VERSION 100 // 0.1.0
+#define BETTER_INIT_VERSION 101
 #endif
 
 // This file is included by this header automatically, if it exists.
@@ -558,7 +558,7 @@ namespace better_init
         };
 
         // Our reference classes inherit from this.
-        struct ReferenceBase {};
+        struct elem_ref_base {};
 
         template <typename T>
         struct construct_from_elem
@@ -578,7 +578,7 @@ namespace better_init
             template <typename T, typename A>
             struct construct_from_elem_at
             {
-                using return_type = T;
+                using return_type = void;
                 template <typename U>
                 static constexpr void func(U &source, A &alloc, T *target)
                 {
@@ -652,23 +652,27 @@ namespace better_init
         using tuple_t = detail::tuple<P &&...>;
 
         template <typename T>
-        class Reference : public detail::ReferenceBase
+        class elem_ref : public detail::elem_ref_base
         {
             friend DETAIL_BETTER_INIT_CLASS_NAME;
             const tuple_t *target = nullptr;
             detail::size_t index = 0;
 
-            constexpr Reference() {}
+            constexpr elem_ref() {}
 
             // If the list is homogeneous, dereferences the reference into the homogeneous type.
             // Otherwise returns a reference to our reference.
             template <typename U = T, std::enable_if_t<detail::dependent_value<U, is_homogeneous>::value, detail::nullptr_t> = nullptr>
             constexpr homogeneous_type dereference_if_homogeneous() const
             {
-                return static_cast<homogeneous_type>(*target->values[index]);
+                // Need a local variable here. Trying to return directly causes
+                // `warning C4172: returning address of local variable or temporary` on MSVC, and then a runtime crash.
+                // In constexpr contexts it can also cause the 'not a constant expression' error.
+                homogeneous_type &ret = *target->values[index];
+                return static_cast<homogeneous_type>(ret);
             }
             template <typename U = T, std::enable_if_t<detail::dependent_value<U, !is_homogeneous>::value, detail::nullptr_t> = nullptr>
-            constexpr const Reference &dereference_if_homogeneous() const
+            constexpr const elem_ref &dereference_if_homogeneous() const
             {
                 return *this;
             }
@@ -677,8 +681,17 @@ namespace better_init
             // Non-copyable.
             // The list creates and owns all its references, and exposes actual references to them.
             // This is because pre-C++20 iterator requirements force us to return actual references from `*`, and more importantly `[]`.
-            Reference(const Reference &) = delete;
-            Reference &operator=(const Reference &) = delete;
+            elem_ref(const elem_ref &) = delete;
+            elem_ref &operator=(const elem_ref &) = delete;
+
+            // MSVC is bugged and refuses to let us default-construct references in some scenarios, despite `init` being our `friend`.
+            // We work around this by creating arrays here.
+            template <detail::size_t N>
+            struct array
+            {
+                elem_ref elems[N];
+                constexpr array() {}
+            };
 
             // Note that this is unnecessary when `is_homogeneous` is true, because in that case our iterator
             // dereferences directly to `homogeneous_type`.
@@ -698,20 +711,20 @@ namespace better_init
         };
 
         template <typename T>
-        class Iterator
+        class elem_iter
         {
             friend class DETAIL_BETTER_INIT_CLASS_NAME;
-            const Reference<T> *ref = nullptr;
+            const elem_ref<T> *ref = nullptr;
 
           public:
             // Can't use C++20 iterator category auto-detection here, since both libstdc++ and libc++ incorrectly require `reference` to be an lvalue reference.
             using iterator_category = std::random_access_iterator_tag;
-            using reference = std::conditional_t<is_homogeneous, homogeneous_type, const Reference<T> &>;
+            using reference = std::conditional_t<is_homogeneous, homogeneous_type, const elem_ref<T> &>;
             using value_type = std::remove_cv_t<std::remove_reference_t<reference>>;
             using pointer = void;
             using difference_type = detail::ptrdiff_t;
 
-            constexpr Iterator() noexcept {}
+            constexpr elem_iter() noexcept {}
 
             // `LegacyForwardIterator` requires us to return an actual reference here.
             constexpr reference operator*() const noexcept {return ref->dereference_if_homogeneous();}
@@ -719,54 +732,54 @@ namespace better_init
             // No `operator->`. This causes C++20 `std::iterator_traits` to guess `pointer_type == void`, which sounds ok to me.
 
             // Don't want to rely on `<compare>`.
-            friend constexpr bool operator==(Iterator a, Iterator b) noexcept
+            friend constexpr bool operator==(elem_iter a, elem_iter b) noexcept
             {
                 return a.ref == b.ref;
             }
-            friend constexpr bool operator!=(Iterator a, Iterator b) noexcept
+            friend constexpr bool operator!=(elem_iter a, elem_iter b) noexcept
             {
                 return !(a == b);
             }
-            friend constexpr bool operator<(Iterator a, Iterator b) noexcept
+            friend constexpr bool operator<(elem_iter a, elem_iter b) noexcept
             {
                 // Don't want to include `<functional>` for `std::less`, so need to cast to an integer to avoid UB.
                 return detail::uintptr_t(a.ref) < detail::uintptr_t(b.ref);
             }
-            friend constexpr bool operator> (Iterator a, Iterator b) noexcept {return b < a;}
-            friend constexpr bool operator<=(Iterator a, Iterator b) noexcept {return !(b < a);}
-            friend constexpr bool operator>=(Iterator a, Iterator b) noexcept {return !(a < b);}
+            friend constexpr bool operator> (elem_iter a, elem_iter b) noexcept {return b < a;}
+            friend constexpr bool operator<=(elem_iter a, elem_iter b) noexcept {return !(b < a);}
+            friend constexpr bool operator>=(elem_iter a, elem_iter b) noexcept {return !(a < b);}
 
-            constexpr Iterator &operator++() noexcept
+            constexpr elem_iter &operator++() noexcept
             {
                 ++ref;
                 return *this;
             }
-            constexpr Iterator &operator--() noexcept
+            constexpr elem_iter &operator--() noexcept
             {
                 --ref;
                 return *this;
             }
-            constexpr Iterator operator++(int) noexcept
+            constexpr elem_iter operator++(int) noexcept
             {
-                Iterator ret = *this;
+                elem_iter ret = *this;
                 ++*this;
                 return ret;
             }
-            constexpr Iterator operator--(int) noexcept
+            constexpr elem_iter operator--(int) noexcept
             {
-                Iterator ret = *this;
+                elem_iter ret = *this;
                 --*this;
                 return ret;
             }
-            constexpr friend Iterator operator+(Iterator it, detail::ptrdiff_t n) noexcept {it += n; return it;}
-            constexpr friend Iterator operator+(detail::ptrdiff_t n, Iterator it) noexcept {it += n; return it;}
-            constexpr friend Iterator operator-(Iterator it, detail::ptrdiff_t n) noexcept {it -= n; return it;}
+            constexpr friend elem_iter operator+(elem_iter it, detail::ptrdiff_t n) noexcept {it += n; return it;}
+            constexpr friend elem_iter operator+(detail::ptrdiff_t n, elem_iter it) noexcept {it += n; return it;}
+            constexpr friend elem_iter operator-(elem_iter it, detail::ptrdiff_t n) noexcept {it -= n; return it;}
             // There's no `number - iterator`.
 
-            constexpr friend detail::ptrdiff_t operator-(Iterator a, Iterator b) noexcept {return a.ref - b.ref;}
+            constexpr friend detail::ptrdiff_t operator-(elem_iter a, elem_iter b) noexcept {return a.ref - b.ref;}
 
-            constexpr Iterator &operator+=(detail::ptrdiff_t n) noexcept {ref += n; return *this;}
-            constexpr Iterator &operator-=(detail::ptrdiff_t n) noexcept {ref -= n; return *this;}
+            constexpr elem_iter &operator+=(detail::ptrdiff_t n) noexcept {ref += n; return *this;}
+            constexpr elem_iter &operator-=(detail::ptrdiff_t n) noexcept {ref -= n; return *this;}
 
             constexpr reference operator[](detail::ptrdiff_t i) const noexcept
             {
@@ -775,16 +788,16 @@ namespace better_init
         };
 
         // Could use `[[no_unique_address]]`, but it's our only member variable anyway.
-        // Can't store `Reference`s here directly, because we can't use a templated `operator T` in our elements,
+        // Can't store `elem_ref`s here directly, because we can't use a templated `operator T` in our elements,
         // because it doesn't work correctly on MSVC (but not on GCC and Clang).
         tuple_t elems;
 
         // See the public `_helper`-less versions below.
         // Note that we have to use a specialization here. Directly inheriting from `integral_constant` isn't enough, because it's not SFINAE-friendly (with respect to the `element_type<T>::type`).
         template <typename Void, typename T, typename ...Q> struct can_initialize_range_helper : std::false_type {};
-        template <typename T, typename ...Q> struct can_initialize_range_helper        <std::enable_if_t<custom::is_range<T>::value && detail::constructible_from_iters        <T, Iterator<typename custom::element_type<T>::type>, Q...>::value && can_initialize_elem        <typename custom::element_type<T>::type>::value>, T, Q...> : std::true_type {};
+        template <typename T, typename ...Q> struct can_initialize_range_helper        <std::enable_if_t<custom::is_range<T>::value && detail::constructible_from_iters        <T, elem_iter<typename custom::element_type<T>::type>, Q...>::value && can_initialize_elem        <typename custom::element_type<T>::type>::value>, T, Q...> : std::true_type {};
         template <typename Void, typename T, typename ...Q> struct can_nothrow_initialize_range_helper : std::false_type {};
-        template <typename T, typename ...Q> struct can_nothrow_initialize_range_helper<std::enable_if_t<custom::is_range<T>::value && detail::nothrow_constructible_from_iters<T, Iterator<typename custom::element_type<T>::type>, Q...>::value && can_nothrow_initialize_elem<typename custom::element_type<T>::type>::value>, T, Q...> : std::true_type {};
+        template <typename T, typename ...Q> struct can_nothrow_initialize_range_helper<std::enable_if_t<custom::is_range<T>::value && detail::nothrow_constructible_from_iters<T, elem_iter<typename custom::element_type<T>::type>, Q...>::value && can_nothrow_initialize_elem<typename custom::element_type<T>::type>::value>, T, Q...> : std::true_type {};
 
       public:
         // Whether this list can be used to initialize a range type `T`, with extra constructor arguments `Q...`.
@@ -830,7 +843,7 @@ namespace better_init
         BETTER_INIT_NODISCARD constexpr T to(Q &&... extra_args) const && noexcept(can_nothrow_initialize_range<T, Q...>::value)
         {
             using elem_type = typename custom::element_type<T>::type;
-            return custom::construct_range<void, T, Iterator<elem_type>, Q...>{}(Iterator<elem_type>{}, Iterator<elem_type>{}, static_cast<Q &&>(extra_args)...);
+            return custom::construct_range<void, T, elem_iter<elem_type>, Q...>{}(elem_iter<elem_type>{}, elem_iter<elem_type>{}, static_cast<Q &&>(extra_args)...);
         }
         // Conversion to a container with extra arguments (such as an allocator).
         template <typename T, typename ...Q, std::enable_if_t<can_initialize_range<T, Q...>::value && sizeof...(P) != 0, detail::nullptr_t> = nullptr>
@@ -838,21 +851,20 @@ namespace better_init
         {
             using elem_type = typename custom::element_type<T>::type;
 
-            // Could use `std::array`, but want to use less headers.
-            // Must store `Reference`s here, because `std::random_access_iterator` requires `operator[]` to return the same type as `operator*`,
+            // Must store `elem_ref`s here, because `std::random_access_iterator` requires `operator[]` to return the same type as `operator*`,
             // and `LegacyForwardIterator` requires `operator*` to return an actual reference. If we don't have those here, we don't have anything for the references to point to.
-            Reference<elem_type> refs[sizeof...(P)];
+            typename elem_ref<elem_type>::template array<sizeof...(P)> refs;
             for (detail::size_t i = 0; i < sizeof...(P); i++)
             {
-                refs[i].target = &elems;
-                refs[i].index = i;
+                refs.elems[i].target = &elems;
+                refs.elems[i].index = i;
             }
 
-            Iterator<elem_type> begin, end;
-            begin.ref = refs;
-            end.ref = refs + sizeof...(P);
+            elem_iter<elem_type> begin, end;
+            begin.ref = refs.elems;
+            end.ref = refs.elems + sizeof...(P);
 
-            return custom::construct_range<void, T, Iterator<elem_type>, Q...>{}(begin, end, static_cast<Q &&>(extra_args)...);
+            return custom::construct_range<void, T, elem_iter<elem_type>, Q...>{}(begin, end, static_cast<Q &&>(extra_args)...);
         }
 
         // Conversions to non-ranges, which are initialized with a braced list.
@@ -980,7 +992,7 @@ namespace better_init
 
             // Whether `T` is a reference class. If it's used as a `.construct()` parameter, we wrap this call.
             template <typename T>
-            struct is_reference_class : std::is_base_of<ReferenceBase, T> {};
+            struct is_reference_class : std::is_base_of<elem_ref_base, T> {};
 
             // Whether `.construct(ptr, P...)` should be wrapped, for allocator `T`, because `P...` is a single reference class.
             template <typename Void, typename T, typename ...P>

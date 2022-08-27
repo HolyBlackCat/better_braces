@@ -112,8 +112,8 @@ better_init::DETAIL_BETTER_INIT_CLASS_NAME<P...> &&invalid_init_list()
 // Try to explicitly instantiate the types from `CHECKED_LIST_TYPES`.
 #define CHECK_INSTANTIATION(target_, ...) \
     template class better_init::DETAIL_BETTER_INIT_CLASS_NAME<__VA_ARGS__>; \
-    template class better_init::DETAIL_BETTER_INIT_CLASS_NAME<__VA_ARGS__>::Iterator<target_>; \
-    template class better_init::DETAIL_BETTER_INIT_CLASS_NAME<__VA_ARGS__>::Reference<target_>;
+    template class better_init::DETAIL_BETTER_INIT_CLASS_NAME<__VA_ARGS__>::elem_iter<target_>; \
+    template class better_init::DETAIL_BETTER_INIT_CLASS_NAME<__VA_ARGS__>::elem_ref<target_>;
 CHECKED_LIST_TYPES(CHECK_INSTANTIATION)
 #undef CHECK_INSTANTIATION
 
