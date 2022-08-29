@@ -112,8 +112,8 @@ better_init::DETAIL_BETTER_INIT_CLASS_NAME<P...> &&invalid_init_list()
 // Try to explicitly instantiate the types from `CHECKED_LIST_TYPES`.
 #define CHECK_INSTANTIATION(target_, ...) \
     template class better_init::DETAIL_BETTER_INIT_CLASS_NAME<__VA_ARGS__>; \
-    template class better_init::DETAIL_BETTER_INIT_CLASS_NAME<__VA_ARGS__>::Iterator<target_>; \
-    template class better_init::DETAIL_BETTER_INIT_CLASS_NAME<__VA_ARGS__>::Reference<target_>;
+    template class better_init::DETAIL_BETTER_INIT_CLASS_NAME<__VA_ARGS__>::elem_iter<target_>; \
+    template class better_init::DETAIL_BETTER_INIT_CLASS_NAME<__VA_ARGS__>::elem_ref<target_>;
 CHECKED_LIST_TYPES(CHECK_INSTANTIATION)
 #undef CHECK_INSTANTIATION
 
@@ -231,6 +231,26 @@ struct NonrangeWithExplicitCtor
     explicit NonrangeWithExplicitCtor(int, int, int) {}
 };
 
+template <typename T, typename ...P>
+struct ConstexprRange
+{
+    using value_type = T;
+    value_type sum = 0;
+
+    // I tried to find the sum using the dummy array trick, but MSVC gets an ICE on it. D:<
+    constexpr int calc_sum() {return 0;}
+    template <typename ...Q>
+    constexpr int calc_sum(int first, Q ...next) {return first + (calc_sum)(next...);}
+
+    template <typename U>
+    constexpr ConstexprRange(U begin, U end, P ...extra)
+    {
+        while (begin != end)
+            sum += *begin++;
+
+        sum += calc_sum(extra...);
+    }
+};
 
 int main()
 {
@@ -438,6 +458,26 @@ int main()
 
         static_assert(!std::is_convertible<better_init::DETAIL_BETTER_INIT_CLASS_NAME<int, int, int>, NonrangeWithExplicitCtor>::value, "");
         static_assert(std::is_constructible<NonrangeWithExplicitCtor, better_init::DETAIL_BETTER_INIT_CLASS_NAME<int, int, int>>::value, "");
+    }
+
+    { // Constexpr-ness.
+        constexpr int x1 = 1;
+        constexpr float x2 = 2.1f;
+        constexpr double x3 = 3.2;
+
+        // Homogeneous.
+        static_assert(ConstexprRange<int>(INIT(1, 2, 3)).sum == 6, "");
+        static_assert(ConstexprRange<int>(INIT(x1, x1, x1)).sum == 3, "");
+        // With extra args.
+        static_assert(INIT(1, 2, 3).to<ConstexprRange<int, const double &, int>>(x3, 4).sum == 13, "");
+        static_assert(INIT(x1, x1, x1).to<ConstexprRange<int, const double &, int>>(x3, 4).sum == 10, "");
+
+        // Heterogeneous.
+        static_assert(ConstexprRange<int>(INIT(1, 2.1f, 3.2)).sum == 6, "");
+        static_assert(ConstexprRange<int>(INIT(x1, x1, x1)).sum == 3, "");
+        // With extra args.
+        static_assert(INIT(1, 2.1f, 3.2).to<ConstexprRange<int, const double &, int>>(x3, 4).sum == 13, "");
+        static_assert(INIT(x1, x2, x3).to<ConstexprRange<int, const double &, int>>(x3, 4).sum == 13, "");
     }
 
     std::cout << "OK";

@@ -38,17 +38,22 @@ SRC := tests.cpp
 # Used to create local variables in a safer way. E.g. `$(call var,x := 42)`.
 override var = $(eval override $(subst $,$$$$,$1))
 
+# A line break.
+override define lf :=
+$(call)
+$(call)
+endef
 
 .PHONY: tests
 tests:
 ifneq ($(words $(COMPILER)),1)
-	@true $(foreach x,$(COMPILER),&& make --no-print-directory COMPILER=$x)
+	@true $(foreach x,$(COMPILER),&& $(MAKE) --no-print-directory COMPILER=$x)
 else ifneq ($(words $(STANDARD)),1)
-	@true $(foreach x,$(STANDARD),&& make --no-print-directory STANDARD=$x)
+	@true $(foreach x,$(STANDARD),&& $(MAKE) --no-print-directory STANDARD=$x)
 else ifneq ($(words $(STDLIB)),1)
-	@true $(foreach x,$(STDLIB),&& make --no-print-directory STDLIB=$x)
+	@true $(foreach x,$(STDLIB),&& $(MAKE) --no-print-directory STDLIB=$x)
 else ifneq ($(words $(OPTIMIZE)),1)
-	@true $(foreach x,$(OPTIMIZE),&& make --no-print-directory OPTIMIZE=$x)
+	@true $(foreach x,$(OPTIMIZE),&& $(MAKE) --no-print-directory OPTIMIZE=$x)
 else ifneq ($(and $(filter g++%,$(COMPILER)),$(filter-out libstdc++,$(STDLIB))),)
 	@true # GCC only supports libstdc++.
 else ifneq ($(and $(filter clang++%,$(COMPILER)),$(filter msvc,$(STDLIB))),)
@@ -89,3 +94,36 @@ commands:
 	$(if $(std),,$(error Unable to guess the C++ standard version))
 	$(file >compile_commands.json,[{"directory":"$(CURDIR)", "file":"$(abspath $(SRC))", "command":"$(cxx) $(SRC) $(CXXFLAGS) $(CXXFLAGS_DEFAULT) -std=c++$(std)"}])
 	@true
+
+
+# A reminder to bump the version number.
+# We store the commit hash (plus the "dirty" flag) and the current version to a file called `$(last_version_file)`.
+# If the hash changes but the version doesn't, we emit an error.
+# Except that when the "dirty" flag changes from true to false, we silently accept the hash change once.
+CHECK_VERSION = 1# Set to 0 to disable the version number check.
+ifneq ($(and $(filter 0,$(MAKELEVEL)),$(filter-out 0,$(CHECK_VERSION))),)
+last_version_file := .last_version
+
+LAST_VER :=
+LAST_COMMIT :=
+-include $(last_version_file)
+
+THIS_VER = $(shell printf "%05d" $$(grep -oP '#define BETTER_INIT_VERSION\s+\K[0-9]+' include/better_init.hpp) | sed -E 's/(.*)(.{2})(.{2})/\1.\2.\3/')
+$(if $(THIS_VER),,$(error Unable to determine the version number from the header.))
+
+THIS_COMMIT := $(shell git describe --always --abbrev=0 --match "NOT A TAG" --dirty=-dirty)
+$(if $(and $(THIS_COMMIT),$(filter 0,$(.SHELLSTATUS))),,$(error Unable to determine the current commit hash.))
+
+$(info Version $(THIS_VER) at commit $(THIS_COMMIT))
+$(info )
+
+ifeq ($(LAST_VER),$(THIS_VER))
+ifneq ($(LAST_COMMIT),$(THIS_COMMIT))
+ifeq ($(and $(filter %-dirty,$(LAST_COMMIT)),$(filter-out %-dirty,$(THIS_COMMIT))),)
+$(error Go bump the version number! Or pass `CHECK_VERSION=0` to ignore this check)
+endif
+endif
+endif
+
+$(file >$(last_version_file),LAST_VER := $(THIS_VER)$(lf)LAST_COMMIT := $(THIS_COMMIT))
+endif
