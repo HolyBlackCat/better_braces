@@ -27,7 +27,7 @@
 
 // The version number: `major*10000 + minor*100 + patch`.
 #ifndef BETTER_INIT_VERSION
-#define BETTER_INIT_VERSION 101
+#define BETTER_INIT_VERSION 102
 #endif
 
 // This file is included by this header automatically, if it exists.
@@ -91,12 +91,14 @@ namespace better_init
     // Customization points.
     namespace custom
     {
-        // Whether to make the conversion operator of `init{...}` implicit. `T` is the target container type.
+        // Whether to make the conversion operator of `init{...}` implicit. `T` is the target container type,
+        // and `P...` are the extra constructor arguments.
         // Defaults to checking if `T` has a `std::initializer_list<U>` constructor, for any `U`.
-        template <typename T, typename = void>
-        struct allow_implicit_range_init : std::is_constructible<T, detail::any_init_list> {};
+        template <typename Void, typename T, typename ...P>
+        struct allow_implicit_range_init : std::is_constructible<T, detail::any_init_list, P...> {};
         // Same, but for braced init (for non-ranges), as opposed to initializing ranges from a pair of iterators.
         // Defaults to checking if `T` is implicitly constructible from a braced list of `P...`.
+        // NOTE: Here the meaning of `P...` is different compared to the `allow_implicit_range_init`.
         template <typename Void, typename T, typename ...P>
         struct allow_implicit_nonrange_init : detail::implicitly_brace_constructible<T, P...> {};
 
@@ -107,7 +109,7 @@ namespace better_init
         struct element_type : detail::basic_element_type<T> {};
 
         // How to construct `T` from a pair of iterators. Defaults to `T(begin, end, extra...)`.
-        // Where `extra...` are the arguments passed to `.to<T>(...)`, or empty for a conversion operator.
+        // Where `extra...` are the arguments passed to `.with(...)`, if any.
         template <typename Void, typename T, typename Iter, typename ...P>
         struct construct_range
         {
@@ -119,16 +121,13 @@ namespace better_init
             }
         };
 
-        // How to construct `T` (which is not a range) from a braced list. Defaults to `T{P...}`,
-        // where `P...` are the list elements, followed by any extra arguments passed to `.to<T>(...)` (or none for a conversion operator).
+        // How to construct `T` (which is not a range) from a braced list. Defaults to `T{P...}`, where `P...` are the list elements.
         template <typename Void, typename T, typename ...P>
         struct construct_nonrange
         {
             // Note `TT = T`. The SFINAE condition has to depend on this function's template parameters, otherwise this is a hard error.
             template <typename TT = T>
-            constexpr auto operator()(P &&... params) const
-            noexcept(noexcept(TT{static_cast<P &&>(params)...}))
-            -> decltype(TT{static_cast<P &&>(params)...})
+            constexpr auto operator()(P &&... params) const noexcept(noexcept(TT{static_cast<P &&>(params)...})) -> decltype(TT{static_cast<P &&>(params)...})
             {
                 return T{static_cast<P &&>(params)...};
             }
@@ -154,9 +153,9 @@ namespace better_init
     namespace custom
     {
         // Whether `T` looks like a container or not.
-        // If yes, we're going to try to construct it from a pair of iterators.
-        // If not, we're going to try to initialize it with a braced list.
+        // If yes, we're going to try to construct it from a pair of iterators. If not, we're going to try to initialize it with a braced list.
         // We don't want to attempt both, because that looks error-prone (a-la the uniform init fiasco).
+        // By default, we're looking for `custom::element_type` (which defaults to `::value_type`), but reject aggregates.
         template <typename T, typename = void>
         struct is_range : detail::basic_is_range<T> {};
     }
@@ -173,7 +172,7 @@ namespace better_init
 #endif
 
 // Whether to automatically import `better_init::init{...}` (or rather `better_init::BETTER_INIT_IDENTIFIER{...}`)
-// to the global namespace;
+// to the global namespace.
 #ifndef BETTER_INIT_IN_GLOBAL_NAMESPACE
 #define BETTER_INIT_IN_GLOBAL_NAMESPACE 1
 #endif
@@ -557,6 +556,7 @@ namespace better_init
             }
         };
 
+
         // Our reference classes inherit from this.
         struct elem_ref_base {};
 
@@ -806,8 +806,70 @@ namespace better_init
         // Whether this list can be used to initialize a non-range of type `T` (by forwarding arguments to the constructor), with extra constructor arguments `Q...`.
         // NOTE: We check `!is_range<T>` here to avoid the uniform init fiasco, at least for our lists.
         // NOTE: We need short-circuiting here, otherwise libstdc++ 10 in C++14 mode fails with a hard error in `nonrange_brace_constructible`.
-        template <typename T, typename ...Q> struct can_initialize_nonrange         : detail::all_of<detail::negate<custom::is_range<T>>, detail::nonrange_brace_constructible        <T, P..., Q...>> {};
-        template <typename T, typename ...Q> struct can_nothrow_initialize_nonrange : detail::all_of<detail::negate<custom::is_range<T>>, detail::nothrow_nonrange_brace_constructible<T, P..., Q...>> {};
+        // NOTE: `sizeof...(Q) == 0` is an arbitrary restriction, hopefully forcing a more clear usage.
+        template <typename T, typename ...Q> struct can_initialize_nonrange         : detail::all_of<detail::negate<custom::is_range<T>>, std::integral_constant<bool, sizeof...(Q) == 0>, detail::nonrange_brace_constructible        <T, P..., Q...>> {};
+        template <typename T, typename ...Q> struct can_nothrow_initialize_nonrange : detail::all_of<detail::negate<custom::is_range<T>>, std::integral_constant<bool, sizeof...(Q) == 0>, detail::nothrow_nonrange_brace_constructible<T, P..., Q...>> {};
+
+      private:
+        template <typename T>
+        struct convert_functor
+        {
+            const DETAIL_BETTER_INIT_CLASS_NAME *list = nullptr;
+
+            // Convert to an empty range.
+            template <typename ...Q, std::enable_if_t<can_initialize_range<T, Q...>::value && sizeof...(P) == 0, detail::nullptr_t> = nullptr>
+            BETTER_INIT_NODISCARD constexpr T operator()(Q &&... extra_args) const
+            {
+                using elem_type = typename custom::element_type<T>::type;
+                return custom::construct_range<void, T, elem_iter<elem_type>, Q...>{}(elem_iter<elem_type>{}, elem_iter<elem_type>{}, static_cast<Q &&>(extra_args)...);
+            }
+            // Convert to a non-empty range.
+            template <typename ...Q, std::enable_if_t<can_initialize_range<T, Q...>::value && sizeof...(P) != 0, detail::nullptr_t> = nullptr>
+            BETTER_INIT_NODISCARD constexpr T operator()(Q &&... extra_args) const
+            {
+                using elem_type = typename custom::element_type<T>::type;
+
+                // Must store `elem_ref`s here, because `std::random_access_iterator` requires `operator[]` to return the same type as `operator*`,
+                // and `LegacyForwardIterator` requires `operator*` to return an actual reference. If we don't have those here, we don't have anything for the references to point to.
+                typename elem_ref<elem_type>::template array<sizeof...(P)> refs;
+                for (detail::size_t i = 0; i < sizeof...(P); i++)
+                {
+                    refs.elems[i].target = &list->elems;
+                    refs.elems[i].index = i;
+                }
+
+                elem_iter<elem_type> begin, end;
+                begin.ref = refs.elems;
+                end.ref = refs.elems + sizeof...(P);
+
+                return custom::construct_range<void, T, elem_iter<elem_type>, Q...>{}(begin, end, static_cast<Q &&>(extra_args)...);
+            }
+            // Convert to a non-range.
+            template <typename ...Q, std::enable_if_t<can_initialize_nonrange<T, Q...>::value, detail::nullptr_t> = nullptr>
+            BETTER_INIT_NODISCARD constexpr T operator()(Q &&... extra_args) const
+            {
+                detail::tuple<Q &&...> extra_tuple{&extra_args...};
+                using func_t = custom::construct_nonrange<void, T, P..., Q...>;
+                return extra_tuple.apply(detail::apply_functor<func_t, const tuple_t &>{func_t{}, list->elems});
+            }
+        };
+
+        template <typename Void, typename T, typename ...Q> struct can_nothrow_initialize_helper : can_nothrow_initialize_nonrange<T, Q...> {};
+        template <typename T, typename ...Q> struct can_nothrow_initialize_helper<std::enable_if_t<custom::is_range<T>::value>, T, Q...> : can_nothrow_initialize_range<T, Q...> {};
+
+        template <typename Void, typename T, typename ...Q>
+        struct allow_implicit_init_helper : custom::allow_implicit_nonrange_init<void, T, P..., Q...> {};
+        template <typename T, typename ...Q>
+        struct allow_implicit_init_helper<std::enable_if_t<custom::is_range<T>::value>, T, Q...> : custom::allow_implicit_range_init<void, T, Q.../*note, no P...*/> {};
+
+      public:
+        // Either `can_initialize_range` or `can_initialize_nonrange`.
+        template <typename T, typename ...Q> struct can_initialize : detail::any_of<can_initialize_range<T, Q...>, can_initialize_nonrange<T, Q...>> {};
+        template <typename T, typename ...Q> struct can_nothrow_initialize : can_nothrow_initialize_helper<void, T, Q...> {};
+
+        // Whether the conversion to `T` should be implicit, for extra constructor arguments `Q...`.
+        template <typename T, typename ...Q>
+        struct allow_implicit_init : allow_implicit_init_helper<void, T, Q...> {};
 
         // The constructor from a braced (or parenthesized) list.
         // No `[[nodiscard]]` because GCC 9 complains. Having it on the entire class should be enough.
@@ -821,75 +883,59 @@ namespace better_init
 
         // The conversion functions below are `&&`-qualified as a reminder that your initializer elements can be dangling.
 
-        // Conversions to ranges.
-
-        // Implicit conversion to a container. Implicit-ness is only enabled when it has a `std::initializer_list` constructor.
-        template <typename T, detail::enable_if_valid_conversion_target<T> = 0, std::enable_if_t<can_initialize_range<T>::value && custom::allow_implicit_range_init<T>::value, detail::nullptr_t> = nullptr>
-        BETTER_INIT_NODISCARD constexpr operator T() const && noexcept(can_nothrow_initialize_range<T>::value)
-        {
-            // Don't want to include `<utility>` for `std::move`.
-            return static_cast<const DETAIL_BETTER_INIT_CLASS_NAME &&>(*this).to<T>();
-        }
-        // Explicit conversion to a container.
-        template <typename T, detail::enable_if_valid_conversion_target<T> = 0, std::enable_if_t<can_initialize_range<T>::value && !custom::allow_implicit_range_init<T>::value, detail::nullptr_t> = nullptr>
-        BETTER_INIT_NODISCARD constexpr explicit operator T() const && noexcept(can_nothrow_initialize_range<T>::value)
-        {
-            // Don't want to include `<utility>` for `std::move`.
-            return static_cast<const DETAIL_BETTER_INIT_CLASS_NAME &&>(*this).to<T>();
-        }
-
-        // Conversion to a container with extra arguments (such as an allocator).
-        template <typename T, typename ...Q, std::enable_if_t<can_initialize_range<T, Q...>::value && sizeof...(P) == 0, detail::nullptr_t> = nullptr>
-        BETTER_INIT_NODISCARD constexpr T to(Q &&... extra_args) const && noexcept(can_nothrow_initialize_range<T, Q...>::value)
-        {
-            using elem_type = typename custom::element_type<T>::type;
-            return custom::construct_range<void, T, elem_iter<elem_type>, Q...>{}(elem_iter<elem_type>{}, elem_iter<elem_type>{}, static_cast<Q &&>(extra_args)...);
-        }
-        // Conversion to a container with extra arguments (such as an allocator).
-        template <typename T, typename ...Q, std::enable_if_t<can_initialize_range<T, Q...>::value && sizeof...(P) != 0, detail::nullptr_t> = nullptr>
-        BETTER_INIT_NODISCARD constexpr T to(Q &&... extra_args) const && noexcept(can_nothrow_initialize_range<T, Q...>::value)
-        {
-            using elem_type = typename custom::element_type<T>::type;
-
-            // Must store `elem_ref`s here, because `std::random_access_iterator` requires `operator[]` to return the same type as `operator*`,
-            // and `LegacyForwardIterator` requires `operator*` to return an actual reference. If we don't have those here, we don't have anything for the references to point to.
-            typename elem_ref<elem_type>::template array<sizeof...(P)> refs;
-            for (detail::size_t i = 0; i < sizeof...(P); i++)
-            {
-                refs.elems[i].target = &elems;
-                refs.elems[i].index = i;
-            }
-
-            elem_iter<elem_type> begin, end;
-            begin.ref = refs.elems;
-            end.ref = refs.elems + sizeof...(P);
-
-            return custom::construct_range<void, T, elem_iter<elem_type>, Q...>{}(begin, end, static_cast<Q &&>(extra_args)...);
-        }
-
-        // Conversions to non-ranges, which are initialized with a braced list.
-        // We could support `(...)` instead, but it just doesn't feel right.
+        // Conversion operators.
+        // Those work with both ranges (constructible from a pair of iterators) and non-ranges (constructible from braced lists).
+        // Note that non-ranges can't use `(...)`, because `std::array` is a non-range and we want to support it too (including pre-C++20).
         // Note that the uniform init fiasco is impossible for our lists, since we allow braced init only if `detail::is_range<T>` is false.
 
-        template <typename T, detail::enable_if_valid_conversion_target<T> = 0, std::enable_if_t<can_initialize_nonrange<T>::value && custom::allow_implicit_nonrange_init<void, T, P...>::value, detail::nullptr_t> = nullptr>
-        BETTER_INIT_NODISCARD constexpr operator T() const && noexcept(can_nothrow_initialize_nonrange<T>::value)
+        // Implicit.
+        template <typename T, detail::enable_if_valid_conversion_target<T> = 0, std::enable_if_t<can_initialize<T>::value && allow_implicit_init<T>::value, detail::nullptr_t> = nullptr>
+        BETTER_INIT_NODISCARD constexpr operator T() const && noexcept(can_nothrow_initialize<T>::value)
         {
-            // Don't want to include `<utility>` for `std::move`.
-            return static_cast<const DETAIL_BETTER_INIT_CLASS_NAME &&>(*this).to<T>();
+            return convert_functor<T>{this}();
         }
-        template <typename T, detail::enable_if_valid_conversion_target<T> = 0, std::enable_if_t<can_initialize_nonrange<T>::value && !custom::allow_implicit_nonrange_init<void, T, P...>::value, detail::nullptr_t> = nullptr>
-        BETTER_INIT_NODISCARD constexpr explicit operator T() const && noexcept(can_nothrow_initialize_nonrange<T>::value)
+        // Explicit.
+        template <typename T, detail::enable_if_valid_conversion_target<T> = 0, std::enable_if_t<can_initialize<T>::value && !allow_implicit_init<T>::value, detail::nullptr_t> = nullptr>
+        BETTER_INIT_NODISCARD constexpr explicit operator T() const && noexcept(can_nothrow_initialize<T>::value)
         {
-            // Don't want to include `<utility>` for `std::move`.
-            return static_cast<const DETAIL_BETTER_INIT_CLASS_NAME &&>(*this).to<T>();
+            return convert_functor<T>{this}();
         }
 
-        template <typename T, typename ...Q, std::enable_if_t<can_initialize_nonrange<T, Q...>::value, detail::nullptr_t> = nullptr>
-        BETTER_INIT_NODISCARD constexpr T to(Q &&... extra_args) const && noexcept(can_nothrow_initialize_nonrange<T, Q...>::value)
+      private:
+        // This is used to convert to ranges with extra constructor arguments.
+        template <typename ...Q>
+        class conversion_helper
         {
-            detail::tuple<Q &&...> extra_tuple{&extra_args...};
-            using func_t = custom::construct_nonrange<void, T, P..., Q...>;
-            return extra_tuple.apply(detail::apply_functor<func_t, const tuple_t &>{func_t{}, elems});
+            friend DETAIL_BETTER_INIT_CLASS_NAME;
+            const DETAIL_BETTER_INIT_CLASS_NAME *list = nullptr;
+            detail::tuple<Q &&...> extra_params;
+
+            constexpr conversion_helper(const DETAIL_BETTER_INIT_CLASS_NAME *list, detail::tuple<Q &&...> extra_params)
+                : list(list), extra_params(extra_params)
+            {}
+
+          public:
+            // Implicit.
+            template <typename T, detail::enable_if_valid_conversion_target<T> = 0, std::enable_if_t<can_initialize<T, Q...>::value && allow_implicit_init<T, Q...>::value, detail::nullptr_t> = nullptr>
+            BETTER_INIT_NODISCARD constexpr operator T() const && noexcept(can_nothrow_initialize<T, Q...>::value)
+            {
+                return extra_params.apply(convert_functor<T>{list});
+            }
+            // Explicit.
+            template <typename T, detail::enable_if_valid_conversion_target<T> = 0, std::enable_if_t<can_initialize<T, Q...>::value && !allow_implicit_init<T, Q...>::value, detail::nullptr_t> = nullptr>
+            BETTER_INIT_NODISCARD constexpr explicit operator T() const && noexcept(can_nothrow_initialize<T, Q...>::value)
+            {
+                return extra_params.apply(convert_functor<T>{list});
+            }
+        };
+
+      public:
+        // Returns a helper object with conversion operators.
+        // `extra_params...` are the extra parameters passed to the type's constructor, after the pair of iterators.
+        template <typename ...Q>
+        BETTER_INIT_NODISCARD constexpr conversion_helper<Q &&...> with(Q &&... extra_params) const &&
+        {
+            return {this, {&extra_params...}};
         }
     };
 
