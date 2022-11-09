@@ -526,11 +526,5 @@ int main()
         static_assert(ConstexprRange<int, const double &, int>(INIT(x1, x2, x3).with(x3, 4)).sum == 13, "");
     }
 
-    std::cout << "OK";
-    #if BETTER_INIT_ALLOCATOR_HACK
-    std::cout << "  (with allocator hack)";
-    if (!better_init::detail::allocator_hack::compiler_has_broken_construct_at::value)
-        std::cout << " (the allocator hack is unnecessary)";
-    #endif
-    std::cout << '\n';
+    std::cout << "OK\n";
 }
