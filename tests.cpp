@@ -526,5 +526,21 @@ int main()
         static_assert(ConstexprRange<int, const double &, int>(INIT(x1, x2, x3).and_with(x3, 4)).sum == 13, "");
     }
 
+    { // Nested lists with explicit constructors.
+        // Non-range element.
+        std::vector<ExplicitNonRange> vec1 = INIT(INIT(1,2), INIT(3,4), INIT(5,6));
+        ASSERT_EQ(vec1.size(), 3);
+        // Non-range element, heterogeneous list.
+        std::vector<ExplicitNonRange> vec2 = INIT(INIT(1,2), INIT(3,4), INIT(ExplicitNonRange(1,2)));
+        ASSERT_EQ(vec2.size(), 3);
+
+        // Range element.
+        std::vector<ExplicitRange> vec3 = INIT(INIT(1,2), INIT(3,4), INIT(5,6));
+        ASSERT_EQ(vec3.size(), 3);
+        // Range element, heterogeneous list.
+        std::vector<ExplicitRange> vec4 = INIT(INIT(1,2), INIT(3,4), INIT(5,6,7));
+        ASSERT_EQ(vec4.size(), 3);
+    }
+
     std::cout << "OK\n";
 }

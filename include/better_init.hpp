@@ -27,7 +27,7 @@
 
 // The version number: `major*10000 + minor*100 + patch`.
 #ifndef BETTER_INIT_VERSION
-#define BETTER_INIT_VERSION 200
+#define BETTER_INIT_VERSION 202
 #endif
 
 // This file is included by this header automatically, if it exists.
