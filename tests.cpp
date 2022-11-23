@@ -55,24 +55,6 @@
     while (false)
 
 
-// Detection idiom.
-namespace detail_is_detected
-{
-    namespace impl
-    {
-        template <typename T, typename ...P> struct dependent_type
-        {
-            using type = T;
-        };
-    }
-    template <typename A, typename ...B> using void_type = typename impl::dependent_type<void, A, B...>::type;
-
-    template <typename DummyVoid, template <typename...> class A, typename ...B> struct is_detected : std::false_type {};
-    template <template <typename...> class A, typename ...B> struct is_detected<void_type<A<B...>>, A, B...> : std::true_type {};
-}
-template <template <typename...> class A, typename ...B> struct is_detected : detail_is_detected::is_detected<void, A, B...> {};
-
-
 // Get a `init<P...>` value from element types.
 // Causes UB when called, intended only to instantiate templates.
 template <typename ...P>
@@ -540,6 +522,55 @@ int main()
         // Range element, heterogeneous list.
         std::vector<ExplicitRange> vec4 = INIT(INIT(1,2), INIT(3,4), INIT(5,6,7));
         ASSERT_EQ(vec4.size(), 3);
+    }
+
+    { // Copyability of lists, and ref-qualifiers of conversion operators.
+        int x = 42;
+        float y = 43;
+
+        using HomogeneousLvalue = decltype(INIT(x, x, x));
+        using HomogeneousLvalueExtra = decltype(INIT(x, x, x).and_with(42, 43, 44));
+        // Copyability.
+        static_assert(std::is_copy_constructible<HomogeneousLvalue>::value && std::is_copy_assignable<HomogeneousLvalue>::value, "");
+        // Ref-qualifiers on conversions, explicit and implicit.
+        static_assert(!std::is_convertible<HomogeneousLvalue &, ExplicitRange>::value && std::is_constructible<ExplicitRange, HomogeneousLvalue &>::value, "");
+        static_assert(std::is_convertible<HomogeneousLvalue &, ImplicitRange>::value && std::is_constructible<ImplicitRange, HomogeneousLvalue &>::value, "");
+        // Ref-qualifiers on conversions with extra args, explicit and implicit.
+        static_assert(!std::is_convertible<HomogeneousLvalueExtra &, ExplicitRangeWithArgs>::value && std::is_constructible<ExplicitRangeWithArgs, HomogeneousLvalueExtra &>::value, "");
+        static_assert(std::is_convertible<HomogeneousLvalueExtra &, ImplicitRangeWithArgs>::value && std::is_constructible<ImplicitRangeWithArgs, HomogeneousLvalueExtra &>::value, "");
+
+        using HeterogeneousLvalue = decltype(INIT(x, x, y));
+        using HeterogeneousLvalueExtra = decltype(INIT(x, x, y).and_with(42, 43, 44));
+        // Copyability.
+        static_assert(std::is_copy_constructible<HeterogeneousLvalue>::value && std::is_copy_assignable<HeterogeneousLvalue>::value, "");
+        // Ref-qualifiers on conversions, explicit and implicit.
+        static_assert(!std::is_convertible<HeterogeneousLvalue &, ExplicitRange>::value && std::is_constructible<ExplicitRange, HeterogeneousLvalue &>::value, "");
+        static_assert(std::is_convertible<HeterogeneousLvalue &, ImplicitRange>::value && std::is_constructible<ImplicitRange, HeterogeneousLvalue &>::value, "");
+        // Ref-qualifiers on conversions with extra args, explicit and implicit.
+        static_assert(!std::is_convertible<HeterogeneousLvalueExtra &, ExplicitRangeWithArgs>::value && std::is_constructible<ExplicitRangeWithArgs, HeterogeneousLvalueExtra &>::value, "");
+        static_assert(std::is_convertible<HeterogeneousLvalueExtra &, ImplicitRangeWithArgs>::value && std::is_constructible<ImplicitRangeWithArgs, HeterogeneousLvalueExtra &>::value, "");
+
+        using HomogeneousNonLvalue = decltype(INIT(42, x, x));
+        using HomogeneousNonLvalueExtra = decltype(INIT(42, x, x).and_with(42, 43, 44));
+        // Copyability.
+        static_assert(!std::is_copy_constructible<HomogeneousNonLvalue>::value && !std::is_copy_assignable<HomogeneousNonLvalue>::value, "");
+        // Ref-qualifiers on conversions, explicit and implicit.
+        static_assert(!std::is_constructible<ExplicitRange, HomogeneousNonLvalue &>::value && !std::is_convertible<HomogeneousNonLvalue, ExplicitRange>::value && std::is_constructible<ExplicitRange, HomogeneousNonLvalue>::value, "");
+        static_assert(!std::is_constructible<ImplicitRange, HomogeneousNonLvalue &>::value && std::is_convertible<HomogeneousNonLvalue, ImplicitRange>::value && std::is_constructible<ImplicitRange, HomogeneousNonLvalue>::value, "");
+        // Ref-qualifiers on conversions with extra args, explicit and implicit.
+        static_assert(!std::is_constructible<ExplicitRangeWithArgs, HomogeneousNonLvalueExtra &>::value && !std::is_convertible<HomogeneousNonLvalueExtra, ExplicitRangeWithArgs>::value && std::is_constructible<ExplicitRangeWithArgs, HomogeneousNonLvalueExtra>::value, "");
+        static_assert(!std::is_constructible<ImplicitRangeWithArgs, HomogeneousNonLvalueExtra &>::value && std::is_convertible<HomogeneousNonLvalueExtra, ImplicitRangeWithArgs>::value && std::is_constructible<ImplicitRangeWithArgs, HomogeneousNonLvalueExtra>::value, "");
+
+        using HeterogeneousNonLvalue = decltype(INIT(42, x, y));
+        using HeterogeneousNonLvalueExtra = decltype(INIT(42, x, y).and_with(42, 43, 44));
+        // Copyability.
+        static_assert(!std::is_copy_constructible<HeterogeneousNonLvalue>::value && !std::is_copy_assignable<HeterogeneousNonLvalue>::value, "");
+        // Ref-qualifiers on conversions, explicit and implicit.
+        static_assert(!std::is_constructible<ExplicitRange, HeterogeneousNonLvalue &>::value && !std::is_convertible<HeterogeneousNonLvalue, ExplicitRange>::value && std::is_constructible<ExplicitRange, HeterogeneousNonLvalue>::value, "");
+        static_assert(!std::is_constructible<ImplicitRange, HeterogeneousNonLvalue &>::value && std::is_convertible<HeterogeneousNonLvalue, ImplicitRange>::value && std::is_constructible<ImplicitRange, HeterogeneousNonLvalue>::value, "");
+        // Ref-qualifiers on conversions with extra args, explicit and implicit.
+        static_assert(!std::is_constructible<ExplicitRangeWithArgs, HeterogeneousNonLvalueExtra &>::value && !std::is_convertible<HeterogeneousNonLvalueExtra, ExplicitRangeWithArgs>::value && std::is_constructible<ExplicitRangeWithArgs, HeterogeneousNonLvalueExtra>::value, "");
+        static_assert(!std::is_constructible<ImplicitRangeWithArgs, HeterogeneousNonLvalueExtra &>::value && std::is_convertible<HeterogeneousNonLvalueExtra, ImplicitRangeWithArgs>::value && std::is_constructible<ImplicitRangeWithArgs, HeterogeneousNonLvalueExtra>::value, "");
     }
 
     std::cout << "OK\n";

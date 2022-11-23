@@ -27,7 +27,7 @@
 
 // The version number: `major*10000 + minor*100 + patch`.
 #ifndef BETTER_INIT_VERSION
-#define BETTER_INIT_VERSION 202
+#define BETTER_INIT_VERSION 300
 #endif
 
 // This file is included by this header automatically, if it exists.
@@ -326,6 +326,17 @@ namespace better_init
         template <typename T, typename ...P>
         struct first_type<T, P...> {using type = T;};
 
+        // An empty struct, copyable only if the condition is true.
+        template <bool IsCopyable>
+        struct maybe_copyable {};
+        template <>
+        struct maybe_copyable<false>
+        {
+            maybe_copyable() = default;
+            maybe_copyable(const maybe_copyable &) = delete;
+            maybe_copyable &operator=(const maybe_copyable &) = delete;
+        };
+
         // We use a custom tuple class to avoid including `<tuple>` and because we need some extra functionality.
 
         // A helper class for our tuple implementation.
@@ -582,6 +593,7 @@ namespace better_init
 
     template <typename ...P>
     class BETTER_INIT_NODISCARD DETAIL_BETTER_INIT_CLASS_NAME
+        : detail::maybe_copyable<detail::all_of<std::is_lvalue_reference<P>...>::value>
     {
       public:
         // Whether this list can be used to initialize a range of `T`s.
@@ -593,6 +605,9 @@ namespace better_init
         static constexpr bool is_homogeneous = detail::all_types_same<P...>::value && sizeof...(P) > 0;
         // If all types in `P...` are the same (and there's at least one), returns that type. Otherwise returns an empty struct.
         using homogeneous_type = typename std::conditional_t<is_homogeneous, detail::first_type<P &&...>, std::enable_if<true, detail::empty>>::type;
+
+        // Whether all our references are lvalue references. Such lists can be copied.
+        static constexpr bool is_lvalue_only = detail::all_of<std::is_lvalue_reference<P>...>::value;
 
       private:
         using tuple_t = detail::tuple<P &&...>;
@@ -814,9 +829,7 @@ namespace better_init
             : elems{&params...}
         {}
 
-        // Not copyable.
-        DETAIL_BETTER_INIT_CLASS_NAME(const DETAIL_BETTER_INIT_CLASS_NAME &) = delete;
-        DETAIL_BETTER_INIT_CLASS_NAME &operator=(const DETAIL_BETTER_INIT_CLASS_NAME &) = delete;
+        // Only copyable if `is_lvalue_only` is true.
 
         // The conversion functions below are `&&`-qualified as a reminder that your initializer elements can be dangling.
 
@@ -825,14 +838,26 @@ namespace better_init
         // Note that non-ranges can't use `(...)`, because `std::array` is a non-range and we want to support it too (including pre-C++20).
         // Note that the uniform init fiasco is impossible for our lists, since we allow braced init only if `detail::is_range<T>` is false.
 
-        // Implicit.
-        template <typename T, detail::enable_if_valid_conversion_target<T> = 0, std::enable_if_t<can_initialize<T>::value && allow_implicit_init<T>::value, detail::nullptr_t> = nullptr>
+        // Implicit, lvalue-only lists.
+        template <typename T, detail::enable_if_valid_conversion_target<T> = 0, std::enable_if_t<can_initialize<T>::value && allow_implicit_init<T>::value && is_lvalue_only, detail::nullptr_t> = nullptr>
+        BETTER_INIT_NODISCARD constexpr operator T() const & noexcept(can_nothrow_initialize<T>::value)
+        {
+            return convert_functor<T>{this}();
+        }
+        // Explicit, lvalue-only lists.
+        template <typename T, detail::enable_if_valid_conversion_target<T> = 0, std::enable_if_t<can_initialize<T>::value && !allow_implicit_init<T>::value && is_lvalue_only, detail::nullptr_t> = nullptr>
+        BETTER_INIT_NODISCARD constexpr explicit operator T() const & noexcept(can_nothrow_initialize<T>::value)
+        {
+            return convert_functor<T>{this}();
+        }
+        // Implicit, non-lvalue-only lists.
+        template <typename T, detail::enable_if_valid_conversion_target<T> = 0, std::enable_if_t<can_initialize<T>::value && allow_implicit_init<T>::value && !is_lvalue_only, detail::nullptr_t> = nullptr>
         BETTER_INIT_NODISCARD constexpr operator T() const && noexcept(can_nothrow_initialize<T>::value)
         {
             return convert_functor<T>{this}();
         }
-        // Explicit.
-        template <typename T, detail::enable_if_valid_conversion_target<T> = 0, std::enable_if_t<can_initialize<T>::value && !allow_implicit_init<T>::value, detail::nullptr_t> = nullptr>
+        // Explicit, non-lvalue-only lists.
+        template <typename T, detail::enable_if_valid_conversion_target<T> = 0, std::enable_if_t<can_initialize<T>::value && !allow_implicit_init<T>::value && !is_lvalue_only, detail::nullptr_t> = nullptr>
         BETTER_INIT_NODISCARD constexpr explicit operator T() const && noexcept(can_nothrow_initialize<T>::value)
         {
             return convert_functor<T>{this}();
@@ -852,14 +877,26 @@ namespace better_init
             {}
 
           public:
-            // Implicit.
-            template <typename T, detail::enable_if_valid_conversion_target<T> = 0, std::enable_if_t<can_initialize<T, Q...>::value && allow_implicit_init<T, Q...>::value, detail::nullptr_t> = nullptr>
+            // Implicit, lvalue-only lists.
+            template <typename T, detail::enable_if_valid_conversion_target<T> = 0, std::enable_if_t<can_initialize<T, Q...>::value && allow_implicit_init<T, Q...>::value && is_lvalue_only, detail::nullptr_t> = nullptr>
+            BETTER_INIT_NODISCARD constexpr operator T() const & noexcept(can_nothrow_initialize<T, Q...>::value)
+            {
+                return extra_params.apply(convert_functor<T>{list});
+            }
+            // Explicit, lvalue-only lists.
+            template <typename T, detail::enable_if_valid_conversion_target<T> = 0, std::enable_if_t<can_initialize<T, Q...>::value && !allow_implicit_init<T, Q...>::value && is_lvalue_only, detail::nullptr_t> = nullptr>
+            BETTER_INIT_NODISCARD constexpr explicit operator T() const & noexcept(can_nothrow_initialize<T, Q...>::value)
+            {
+                return extra_params.apply(convert_functor<T>{list});
+            }
+            // Implicit, non-lvalue-only lists.
+            template <typename T, detail::enable_if_valid_conversion_target<T> = 0, std::enable_if_t<can_initialize<T, Q...>::value && allow_implicit_init<T, Q...>::value && !is_lvalue_only, detail::nullptr_t> = nullptr>
             BETTER_INIT_NODISCARD constexpr operator T() const && noexcept(can_nothrow_initialize<T, Q...>::value)
             {
                 return extra_params.apply(convert_functor<T>{list});
             }
-            // Explicit.
-            template <typename T, detail::enable_if_valid_conversion_target<T> = 0, std::enable_if_t<can_initialize<T, Q...>::value && !allow_implicit_init<T, Q...>::value, detail::nullptr_t> = nullptr>
+            // Explicit, non-lvalue-only lists.
+            template <typename T, detail::enable_if_valid_conversion_target<T> = 0, std::enable_if_t<can_initialize<T, Q...>::value && !allow_implicit_init<T, Q...>::value && !is_lvalue_only, detail::nullptr_t> = nullptr>
             BETTER_INIT_NODISCARD constexpr explicit operator T() const && noexcept(can_nothrow_initialize<T, Q...>::value)
             {
                 return extra_params.apply(convert_functor<T>{list});
