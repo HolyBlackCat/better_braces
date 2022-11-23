@@ -310,7 +310,7 @@ int main()
     }
 
     { // Initialization with extra arguments.
-        std::vector<std::unique_ptr<int>> vec1 = INIT(nullptr, std::make_unique<int>(42)).with(std::allocator<std::unique_ptr<int>>{});
+        std::vector<std::unique_ptr<int>> vec1 = INIT(nullptr, std::make_unique<int>(42)).and_with(std::allocator<std::unique_ptr<int>>{});
         ASSERT_EQ(vec1.size(), 2);
         ASSERT(vec1[0] == nullptr);
         ASSERT(vec1[1] != nullptr && *vec1[1] == 42);
@@ -463,47 +463,47 @@ int main()
         // Range, explicit constructor.
         static_assert(!std::is_convertible<decltype(INIT(1, 2)), ExplicitRange>::value, "");
         static_assert(std::is_constructible<ExplicitRange, decltype(INIT(1, 2))>::value, "");
-        static_assert(!std::is_convertible<decltype(INIT(1, 2).with(1, 2, 3)), ExplicitRange>::value, "");
-        static_assert(!std::is_constructible<ExplicitRange, decltype(INIT(1, 2).with(1, 2, 3))>::value, "");
+        static_assert(!std::is_convertible<decltype(INIT(1, 2).and_with(1, 2, 3)), ExplicitRange>::value, "");
+        static_assert(!std::is_constructible<ExplicitRange, decltype(INIT(1, 2).and_with(1, 2, 3))>::value, "");
 
         // Range, implicit constructor.
         static_assert(std::is_convertible<decltype(INIT(1, 2)), ImplicitRange>::value, "");
         static_assert(std::is_constructible<ImplicitRange, decltype(INIT(1, 2))>::value, "");
-        static_assert(!std::is_convertible<decltype(INIT(1, 2).with(1, 2, 3)), ImplicitRange>::value, "");
-        static_assert(!std::is_constructible<ImplicitRange, decltype(INIT(1, 2).with(1, 2, 3))>::value, "");
+        static_assert(!std::is_convertible<decltype(INIT(1, 2).and_with(1, 2, 3)), ImplicitRange>::value, "");
+        static_assert(!std::is_constructible<ImplicitRange, decltype(INIT(1, 2).and_with(1, 2, 3))>::value, "");
 
         // Range with extra args, explicit constructor.
         static_assert(!std::is_convertible<decltype(INIT(1, 2)), ExplicitRangeWithArgs>::value, "");
         static_assert(!std::is_constructible<ExplicitRangeWithArgs, decltype(INIT(1, 2))>::value, "");
-        static_assert(!std::is_convertible<decltype(INIT(1, 2).with(1, 2, 3)), ExplicitRangeWithArgs>::value, "");
-        static_assert(std::is_constructible<ExplicitRangeWithArgs, decltype(INIT(1, 2).with(1, 2, 3))>::value, "");
+        static_assert(!std::is_convertible<decltype(INIT(1, 2).and_with(1, 2, 3)), ExplicitRangeWithArgs>::value, "");
+        static_assert(std::is_constructible<ExplicitRangeWithArgs, decltype(INIT(1, 2).and_with(1, 2, 3))>::value, "");
 
         // Range with extra args, implicit constructor.
         static_assert(!std::is_convertible<decltype(INIT(1, 2)), ImplicitRangeWithArgs>::value, "");
         static_assert(!std::is_constructible<ImplicitRangeWithArgs, decltype(INIT(1, 2))>::value, "");
-        static_assert(std::is_convertible<decltype(INIT(1, 2).with(1, 2, 3)), ImplicitRangeWithArgs>::value, "");
-        static_assert(std::is_constructible<ImplicitRangeWithArgs, decltype(INIT(1, 2).with(1, 2, 3))>::value, "");
+        static_assert(std::is_convertible<decltype(INIT(1, 2).and_with(1, 2, 3)), ImplicitRangeWithArgs>::value, "");
+        static_assert(std::is_constructible<ImplicitRangeWithArgs, decltype(INIT(1, 2).and_with(1, 2, 3))>::value, "");
 
         // Non-range, explicit constructor.
         static_assert(!std::is_convertible<decltype(INIT(1, 2)), ExplicitNonRange>::value, "");
         static_assert(std::is_constructible<ExplicitNonRange, decltype(INIT(1, 2))>::value, "");
-        static_assert(!std::is_convertible<decltype(INIT(1, 2).with(1, 2, 3)), ExplicitNonRange>::value, "");
-        static_assert(!std::is_constructible<ExplicitNonRange, decltype(INIT(1, 2).with(1, 2, 3))>::value, "");
+        static_assert(!std::is_convertible<decltype(INIT(1, 2).and_with(1, 2, 3)), ExplicitNonRange>::value, "");
+        static_assert(!std::is_constructible<ExplicitNonRange, decltype(INIT(1, 2).and_with(1, 2, 3))>::value, "");
 
         // Non-range, implicit constructor.
         static_assert(std::is_convertible<decltype(INIT(1, 2)), ImplicitNonRange>::value, "");
         static_assert(std::is_constructible<ImplicitNonRange, decltype(INIT(1, 2))>::value, "");
-        static_assert(!std::is_convertible<decltype(INIT(1, 2).with(1, 2, 3)), ImplicitNonRange>::value, "");
-        static_assert(!std::is_constructible<ImplicitNonRange, decltype(INIT(1, 2).with(1, 2, 3))>::value, "");
+        static_assert(!std::is_convertible<decltype(INIT(1, 2).and_with(1, 2, 3)), ImplicitNonRange>::value, "");
+        static_assert(!std::is_constructible<ImplicitNonRange, decltype(INIT(1, 2).and_with(1, 2, 3))>::value, "");
     }
 
-    { // Make sure `.with(...)` doesn't work for non-ranges.
+    { // Make sure `.and_with(...)` doesn't work for non-ranges.
         // This is an arbitrary restriction, intended to force a cleaner usage.
         static_assert(std::is_constructible<std::array<int, 3>, decltype(INIT(1, 2, 3))>::value, "");
-        static_assert(std::is_constructible<std::array<int, 3>, decltype(INIT(1, 2, 3).with())>::value, ""); // Empty argument list is allowed, to simplify generic code.
-        static_assert(!std::is_constructible<std::array<int, 3>, decltype(INIT(1, 2).with(3))>::value, "");
-        static_assert(!std::is_constructible<std::array<int, 3>, decltype(INIT(1).with(2, 3))>::value, "");
-        static_assert(!std::is_constructible<std::array<int, 3>, decltype(INIT().with(1, 2, 3))>::value, "");
+        static_assert(std::is_constructible<std::array<int, 3>, decltype(INIT(1, 2, 3).and_with())>::value, ""); // Empty argument list is allowed, to simplify generic code.
+        static_assert(!std::is_constructible<std::array<int, 3>, decltype(INIT(1, 2).and_with(3))>::value, "");
+        static_assert(!std::is_constructible<std::array<int, 3>, decltype(INIT(1).and_with(2, 3))>::value, "");
+        static_assert(!std::is_constructible<std::array<int, 3>, decltype(INIT().and_with(1, 2, 3))>::value, "");
     }
 
     { // Constexpr-ness.
@@ -515,15 +515,15 @@ int main()
         static_assert(ConstexprRange<int>(INIT(1, 2, 3)).sum == 6, "");
         static_assert(ConstexprRange<int>(INIT(x1, x1, x1)).sum == 3, "");
         // With extra args.
-        static_assert(ConstexprRange<int, const double &, int>(INIT(1, 2, 3).with(x3, 4)).sum == 13, "");
-        static_assert(ConstexprRange<int, const double &, int>(INIT(x1, x1, x1).with(x3, 4)).sum == 10, "");
+        static_assert(ConstexprRange<int, const double &, int>(INIT(1, 2, 3).and_with(x3, 4)).sum == 13, "");
+        static_assert(ConstexprRange<int, const double &, int>(INIT(x1, x1, x1).and_with(x3, 4)).sum == 10, "");
 
         // Heterogeneous.
         static_assert(ConstexprRange<int>(INIT(1, 2.1f, 3.2)).sum == 6, "");
         static_assert(ConstexprRange<int>(INIT(x1, x2, x3)).sum == 6, "");
         // With extra args.
-        static_assert(ConstexprRange<int, const double &, int>(INIT(1, 2.1f, 3.2).with(x3, 4)).sum == 13, "");
-        static_assert(ConstexprRange<int, const double &, int>(INIT(x1, x2, x3).with(x3, 4)).sum == 13, "");
+        static_assert(ConstexprRange<int, const double &, int>(INIT(1, 2.1f, 3.2).and_with(x3, 4)).sum == 13, "");
+        static_assert(ConstexprRange<int, const double &, int>(INIT(x1, x2, x3).and_with(x3, 4)).sum == 13, "");
     }
 
     std::cout << "OK\n";

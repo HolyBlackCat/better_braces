@@ -27,7 +27,7 @@
 
 // The version number: `major*10000 + minor*100 + patch`.
 #ifndef BETTER_INIT_VERSION
-#define BETTER_INIT_VERSION 103
+#define BETTER_INIT_VERSION 200
 #endif
 
 // This file is included by this header automatically, if it exists.
@@ -870,7 +870,7 @@ namespace better_init
         // Returns a helper object with conversion operators.
         // `extra_params...` are the extra parameters passed to the type's constructor, after the pair of iterators.
         template <typename ...Q>
-        BETTER_INIT_NODISCARD constexpr conversion_helper<Q &&...> with(Q &&... extra_params) const &&
+        BETTER_INIT_NODISCARD constexpr conversion_helper<Q &&...> and_with(Q &&... extra_params) const &&
         {
             return {this, {&extra_params...}};
         }
