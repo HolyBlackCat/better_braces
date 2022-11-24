@@ -7,6 +7,7 @@
 // #include <https://raw.githubusercontent.com/HolyBlackCat/better_init/master/include/tests.cpp>
 // Or copypaste `better_init.hpp`, followed by this file.
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <cstddef>
@@ -55,6 +56,11 @@
     } \
     while (false)
 
+// Tests if `T` has `.begin()` and `.end()`.
+template <typename T, typename = void>
+struct HasBeginEnd : std::false_type {};
+template <typename T>
+struct HasBeginEnd<T, decltype(void(std::declval<T>().begin()), void(std::declval<T>().end()))> : std::true_type {};
 
 // Get a `init<P...>` value from element types.
 // Causes UB when called, intended only to instantiate templates.
@@ -572,6 +578,26 @@ int main()
         // Ref-qualifiers on conversions with extra args, explicit and implicit.
         static_assert(!std::is_constructible<ExplicitRangeWithArgs, HeterogeneousNonLvalueExtra &>::value && !std::is_convertible<HeterogeneousNonLvalueExtra, ExplicitRangeWithArgs>::value && std::is_constructible<ExplicitRangeWithArgs, HeterogeneousNonLvalueExtra>::value, "");
         static_assert(!std::is_constructible<ImplicitRangeWithArgs, HeterogeneousNonLvalueExtra &>::value && std::is_convertible<HeterogeneousNonLvalueExtra, ImplicitRangeWithArgs>::value && std::is_constructible<ImplicitRangeWithArgs, HeterogeneousNonLvalueExtra>::value, "");
+    }
+
+    { // Begin/end iterators in homogeneous lists.
+        int x = 3, y = 2, z = 1;
+        // Lvalue-only lists have unconstrained begin/end.
+        static_assert(HasBeginEnd<decltype(INIT(x, y, z))>::value, "");
+        static_assert(HasBeginEnd<decltype(INIT(x, y, z)) &>::value, "");
+        // Non-lvalue-only lists have rvalue-ref-qualified begin/end.
+        static_assert(HasBeginEnd<decltype(INIT(1, 2, 3))>::value, "");
+        static_assert(!HasBeginEnd<decltype(INIT(1, 2, 3)) &>::value, "");
+        // Heterogeneous lists don't have begin/end.
+        static_assert(!HasBeginEnd<decltype(INIT(x, 2, 3))>::value, "");
+        static_assert(!HasBeginEnd<decltype(INIT(x, 2, 3)) &>::value, "");
+
+        // Check that `std::sort` likes our iterators.
+        auto i = INIT(x, y, z);
+        std::sort(i.begin(), i.end());
+        ASSERT_EQ(x, 1);
+        ASSERT_EQ(y, 2);
+        ASSERT_EQ(z, 3);
     }
 
     std::cout << "OK";

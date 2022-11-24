@@ -27,7 +27,7 @@
 
 // The version number: `major*10000 + minor*100 + patch`.
 #ifndef BETTER_INIT_VERSION
-#define BETTER_INIT_VERSION 400
+#define BETTER_INIT_VERSION 500
 #endif
 
 // This file is included by this header automatically, if it exists.
@@ -345,6 +345,14 @@ namespace better_init
             maybe_copyable &operator=(const maybe_copyable &) = delete;
         };
 
+        // Use `deduce...` to force the following template parameters to be deduced, as opposed to being specified manually.
+        struct deduce_helper
+        {
+          protected:
+            deduce_helper() = default;
+        };
+        using deduce = deduce_helper &;
+
         // We use a custom tuple class to avoid including `<tuple>` and because we need some extra functionality.
 
         // A helper class for our tuple implementation.
@@ -651,6 +659,8 @@ namespace better_init
             }
         };
 
+        // The iterator class.
+        // Homogeneous lists ignore `T` here.
         template <typename T>
         class elem_iter
         {
@@ -843,7 +853,8 @@ namespace better_init
 
         // Only copyable if `is_lvalue_only` is true.
 
-        // The conversion functions below are `&&`-qualified as a reminder that your initializer elements can be dangling.
+        // The conversion functions below are `&&`-qualified as a reminder that your initializer elements can be dangling,
+        // unless the list only contains lvalues.
 
         // Conversion operators.
         // Those work with both ranges (constructible from a pair of iterators) and non-ranges (constructible from braced lists).
@@ -919,9 +930,42 @@ namespace better_init
         // Returns a helper object with conversion operators.
         // `extra_params...` are the extra parameters passed to the type's constructor, after the pair of iterators.
         template <typename ...Q>
-        BETTER_INIT_NODISCARD constexpr conversion_helper<Q &&...> and_with(Q &&... extra_params) const &&
+        BETTER_INIT_NODISCARD constexpr conversion_helper<Q &&...> and_with(Q &&... extra_params) const && noexcept
         {
             return {this, {&extra_params...}};
+        }
+
+        // Begin/end iterators, for homogeneous lists only.
+
+        // Lvalue-only.
+        template <detail::deduce..., typename Void = void, std::enable_if_t<detail::dependent_value<Void, is_homogeneous && is_lvalue_only>::value, detail::nullptr_t> = nullptr>
+        elem_iter<Void> begin() const & noexcept
+        {
+            elem_iter<Void> ret;
+            ret.ptr = elems.values;
+            return ret;
+        }
+        template <detail::deduce..., typename Void = void, std::enable_if_t<detail::dependent_value<Void, is_homogeneous && is_lvalue_only>::value, detail::nullptr_t> = nullptr>
+        elem_iter<Void> end() const & noexcept
+        {
+            elem_iter<Void> ret;
+            ret.ptr = elems.values + sizeof...(P);
+            return ret;
+        }
+        // Non-lvalue-only.
+        template <detail::deduce..., typename Void = void, std::enable_if_t<detail::dependent_value<Void, is_homogeneous && !is_lvalue_only>::value, detail::nullptr_t> = nullptr>
+        elem_iter<Void> begin() const && noexcept
+        {
+            elem_iter<Void> ret;
+            ret.ptr = elems.values;
+            return ret;
+        }
+        template <detail::deduce..., typename Void = void, std::enable_if_t<detail::dependent_value<Void, is_homogeneous && !is_lvalue_only>::value, detail::nullptr_t> = nullptr>
+        elem_iter<Void> end() const && noexcept
+        {
+            elem_iter<Void> ret;
+            ret.ptr = elems.values + sizeof...(P);
+            return ret;
         }
     };
 
