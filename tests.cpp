@@ -26,7 +26,8 @@
 #endif
 
 #ifndef HAVE_MANDATORY_COPY_ELISION
-#if BETTER_INIT_CXX_STANDARD >= 17
+// Work around MSVC issue https://github.com/microsoft/STL/issues/2620, which breaks mandatory copy elision in C++20 mode.
+#if BETTER_INIT_CXX_STANDARD >= 17 && (!defined(_MSC_VER) || _MSC_VER >= 1934 || BETTER_INIT_CXX_STANDARD != 20)
 #define HAVE_MANDATORY_COPY_ELISION 1
 #else
 #define HAVE_MANDATORY_COPY_ELISION 0
@@ -573,5 +574,9 @@ int main()
         static_assert(!std::is_constructible<ImplicitRangeWithArgs, HeterogeneousNonLvalueExtra &>::value && std::is_convertible<HeterogeneousNonLvalueExtra, ImplicitRangeWithArgs>::value && std::is_constructible<ImplicitRangeWithArgs, HeterogeneousNonLvalueExtra>::value, "");
     }
 
-    std::cout << "OK\n";
+    std::cout << "OK";
+    #if BETTER_INIT_CXX_STANDARD >= 17 && !HAVE_MANDATORY_COPY_ELISION
+    std::cout << " (without mandatory copy elision)";
+    #endif
+    std::cout << "\n";
 }
