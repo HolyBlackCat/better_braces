@@ -27,7 +27,7 @@
 
 // The version number: `major*10000 + minor*100 + patch`.
 #ifndef BETTER_INIT_VERSION
-#define BETTER_INIT_VERSION 300
+#define BETTER_INIT_VERSION 400
 #endif
 
 // This file is included by this header automatically, if it exists.
@@ -609,6 +609,7 @@ namespace better_init
       private:
         using tuple_t = detail::tuple<P &&...>;
 
+        // Heterogeneous lists use this as the element type for the iterators.
         template <typename T>
         class elem_ref
         {
@@ -617,23 +618,6 @@ namespace better_init
             detail::size_t index = 0;
 
             constexpr elem_ref() {}
-
-            // If the list is homogeneous, dereferences the reference into the homogeneous type.
-            // Otherwise returns a reference to our reference.
-            template <typename U = T, std::enable_if_t<detail::dependent_value<U, is_homogeneous>::value, detail::nullptr_t> = nullptr>
-            constexpr homogeneous_type dereference_if_homogeneous() const
-            {
-                // Need a local variable here. Trying to return directly causes
-                // `warning C4172: returning address of local variable or temporary` on MSVC, and then a runtime crash.
-                // In constexpr contexts it can also cause the 'not a constant expression' error.
-                homogeneous_type &ret = *target->values[index];
-                return static_cast<homogeneous_type>(ret);
-            }
-            template <typename U = T, std::enable_if_t<detail::dependent_value<U, !is_homogeneous>::value, detail::nullptr_t> = nullptr>
-            constexpr const elem_ref &dereference_if_homogeneous() const
-            {
-                return *this;
-            }
 
           public:
             // Non-copyable.
@@ -663,7 +647,18 @@ namespace better_init
         class elem_iter
         {
             friend class DETAIL_BETTER_INIT_CLASS_NAME;
-            const elem_ref<T> *ref = nullptr;
+            const std::conditional_t<is_homogeneous, std::remove_reference_t<homogeneous_type> *, elem_ref<T>> *ptr = nullptr;
+
+            template <typename Void = void, std::enable_if_t<detail::dependent_value<Void, !is_homogeneous>::value, detail::nullptr_t> = nullptr>
+            constexpr auto &deref() const
+            {
+                return *ptr;
+            }
+            template <typename Void = void, std::enable_if_t<detail::dependent_value<Void, is_homogeneous>::value, detail::nullptr_t> = nullptr>
+            constexpr auto &&deref() const
+            {
+                return static_cast<homogeneous_type>(**ptr);
+            }
 
           public:
             // Can't use C++20 iterator category auto-detection here, since both libstdc++ and libc++ incorrectly require `reference` to be an lvalue reference.
@@ -676,14 +671,14 @@ namespace better_init
             constexpr elem_iter() noexcept {}
 
             // `LegacyForwardIterator` requires us to return an actual reference here.
-            constexpr reference operator*() const noexcept {return ref->dereference_if_homogeneous();}
+            constexpr reference operator*() const noexcept {return deref();}
 
             // No `operator->`. This causes C++20 `std::iterator_traits` to guess `pointer_type == void`, which sounds ok to me.
 
             // Don't want to rely on `<compare>`.
             friend constexpr bool operator==(elem_iter a, elem_iter b) noexcept
             {
-                return a.ref == b.ref;
+                return a.ptr == b.ptr;
             }
             friend constexpr bool operator!=(elem_iter a, elem_iter b) noexcept
             {
@@ -692,7 +687,7 @@ namespace better_init
             friend constexpr bool operator<(elem_iter a, elem_iter b) noexcept
             {
                 // Don't want to include `<functional>` for `std::less`, so need to cast to an integer to avoid UB.
-                return detail::uintptr_t(a.ref) < detail::uintptr_t(b.ref);
+                return detail::uintptr_t(a.ptr) < detail::uintptr_t(b.ptr);
             }
             friend constexpr bool operator> (elem_iter a, elem_iter b) noexcept {return b < a;}
             friend constexpr bool operator<=(elem_iter a, elem_iter b) noexcept {return !(b < a);}
@@ -700,12 +695,12 @@ namespace better_init
 
             constexpr elem_iter &operator++() noexcept
             {
-                ++ref;
+                ++ptr;
                 return *this;
             }
             constexpr elem_iter &operator--() noexcept
             {
-                --ref;
+                --ptr;
                 return *this;
             }
             constexpr elem_iter operator++(int) noexcept
@@ -725,10 +720,10 @@ namespace better_init
             constexpr friend elem_iter operator-(elem_iter it, detail::ptrdiff_t n) noexcept {it -= n; return it;}
             // There's no `number - iterator`.
 
-            constexpr friend detail::ptrdiff_t operator-(elem_iter a, elem_iter b) noexcept {return a.ref - b.ref;}
+            constexpr friend detail::ptrdiff_t operator-(elem_iter a, elem_iter b) noexcept {return a.ptr - b.ptr;}
 
-            constexpr elem_iter &operator+=(detail::ptrdiff_t n) noexcept {ref += n; return *this;}
-            constexpr elem_iter &operator-=(detail::ptrdiff_t n) noexcept {ref -= n; return *this;}
+            constexpr elem_iter &operator+=(detail::ptrdiff_t n) noexcept {ptr += n; return *this;}
+            constexpr elem_iter &operator-=(detail::ptrdiff_t n) noexcept {ptr -= n; return *this;}
 
             constexpr reference operator[](detail::ptrdiff_t i) const noexcept
             {
@@ -772,8 +767,8 @@ namespace better_init
                 using elem_type = typename custom::element_type<T>::type;
                 return custom::construct_range<void, T, elem_iter<elem_type>, Q...>{}(elem_iter<elem_type>{}, elem_iter<elem_type>{}, static_cast<Q &&>(extra_args)...);
             }
-            // Convert to a non-empty range.
-            template <typename ...Q, std::enable_if_t<can_initialize_range<T, Q...>::value && sizeof...(P) != 0, detail::nullptr_t> = nullptr>
+            // Convert to a non-empty heterogeneous range.
+            template <typename ...Q, std::enable_if_t<can_initialize_range<T, Q...>::value && sizeof...(P) != 0 && !is_homogeneous, detail::nullptr_t> = nullptr>
             BETTER_INIT_NODISCARD constexpr T operator()(Q &&... extra_args) const
             {
                 using elem_type = typename custom::element_type<T>::type;
@@ -788,8 +783,20 @@ namespace better_init
                 }
 
                 elem_iter<elem_type> begin, end;
-                begin.ref = refs.elems;
-                end.ref = refs.elems + sizeof...(P);
+                begin.ptr = refs.elems;
+                end.ptr = refs.elems + sizeof...(P);
+
+                return custom::construct_range<void, T, elem_iter<elem_type>, Q...>{}(begin, end, static_cast<Q &&>(extra_args)...);
+            }
+            // Convert to a non-empty homogeneous range.
+            template <typename ...Q, std::enable_if_t<can_initialize_range<T, Q...>::value && sizeof...(P) != 0 && is_homogeneous, detail::nullptr_t> = nullptr>
+            BETTER_INIT_NODISCARD constexpr T operator()(Q &&... extra_args) const
+            {
+                using elem_type = typename custom::element_type<T>::type;
+
+                elem_iter<elem_type> begin, end;
+                begin.ptr = list->elems.values;
+                end.ptr = list->elems.values + sizeof...(P);
 
                 return custom::construct_range<void, T, elem_iter<elem_type>, Q...>{}(begin, end, static_cast<Q &&>(extra_args)...);
             }
