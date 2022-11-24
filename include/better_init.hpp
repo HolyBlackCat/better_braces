@@ -221,13 +221,10 @@ namespace better_init
 #endif
 
 // How to stop the program when something bad happens.
+// This statement will be wrapped in 'diagostic push/pop' automatically.
 #ifndef BETTER_INIT_ABORT
 #if defined(_MSC_VER) && defined(__clang__)
-#define BETTER_INIT_ABORT \
-    _Pragma("clang diagnostic push") \
-    _Pragma("clang diagnostic ignored \"-Winvalid-noreturn\"") \
-    __debugbreak(); \
-    _Pragma("clang diagnostic pop")
+#define BETTER_INIT_ABORT _Pragma("clang diagnostic ignored \"-Winvalid-noreturn\"") __debugbreak();
 #elif defined(_MSC_VER)
 #define BETTER_INIT_ABORT __debugbreak();
 #else
@@ -296,7 +293,18 @@ namespace better_init
 
         struct empty {};
 
+        // In the definition of `BETTER_INIT_ABORT`, we promise to push/pop diagnostics around it.
+        #ifdef _MSC_VER
+        #pragma warning(push)
+        #else
+        #pragma GCC diagnostic push
+        #endif
         [[noreturn]] inline void abort() {BETTER_INIT_ABORT}
+        #ifdef _MSC_VER
+        #pragma warning(pop)
+        #else
+        #pragma GCC diagnostic pop
+        #endif
 
         // A boolean, artifically dependent on a type.
         template <typename T, bool X>
