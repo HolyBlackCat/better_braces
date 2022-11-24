@@ -531,9 +531,6 @@ namespace better_init
         };
 
 
-        // Our reference classes inherit from this.
-        struct elem_ref_base {};
-
         template <typename T>
         struct construct_from_elem
         {
@@ -613,7 +610,7 @@ namespace better_init
         using tuple_t = detail::tuple<P &&...>;
 
         template <typename T>
-        class elem_ref : public detail::elem_ref_base
+        class elem_ref
         {
             friend DETAIL_BETTER_INIT_CLASS_NAME;
             const tuple_t *target = nullptr;
