@@ -26,12 +26,23 @@
 #define INIT(...) init(__VA_ARGS__)
 #endif
 
-#ifndef HAVE_MANDATORY_COPY_ELISION
-// Work around MSVC issue https://github.com/microsoft/STL/issues/2620, which breaks mandatory copy elision in C++20 mode.
-#if BETTER_INIT_CXX_STANDARD >= 17 && (!defined(_MSC_VER) || _MSC_VER >= 1934 || BETTER_INIT_CXX_STANDARD != 20)
-#define HAVE_MANDATORY_COPY_ELISION 1
+
+// Whether we have the mandatory copy elision.
+#ifndef LANG_HAS_MANDATORY_COPY_ELISION
+#if BETTER_INIT_CXX_STANDARD >= 17
+#define LANG_HAS_MANDATORY_COPY_ELISION 1
 #else
-#define HAVE_MANDATORY_COPY_ELISION 0
+#define LANG_HAS_MANDATORY_COPY_ELISION 0
+#endif
+#endif
+
+// Whether we have the mandatory copy elision (and no bugged `std::consturct_at()`) OR the allocator hack.
+#ifndef CONTAINERS_HAVE_MANDATORY_COPY_ELISION
+// Work around MSVC issue https://github.com/microsoft/STL/issues/2620, which breaks mandatory copy elision in C++20 mode.
+#if BETTER_INIT_ALLOCATOR_HACK || (BETTER_INIT_CXX_STANDARD >= 17 && (!defined(_MSC_VER) || _MSC_VER > 1933 || BETTER_INIT_CXX_STANDARD < 20))
+#define CONTAINERS_HAVE_MANDATORY_COPY_ELISION 1
+#else
+#define CONTAINERS_HAVE_MANDATORY_COPY_ELISION 0
 #endif
 #endif
 
@@ -275,7 +286,7 @@ int main()
         ASSERT_EQ(vec5[1].load(), 2);
         ASSERT_EQ(vec5[2].load(), 3);
 
-        #if HAVE_MANDATORY_COPY_ELISION
+        #if CONTAINERS_HAVE_MANDATORY_COPY_ELISION
         // Empty lists count as hetergeneous, thus require mandatory copy elision.
         std::vector<std::atomic_int> vec6 = INIT();
         ASSERT(vec6.empty());
@@ -328,7 +339,8 @@ int main()
         (void)arr4;
 
         // The lists being homogeneous doesn't help us here, because we need to elide the move for the whole `std::array`.
-        #if HAVE_MANDATORY_COPY_ELISION
+        // The bugged `std::construct_at()` doesn't affect this, and the allocator hack doesn't help here.
+        #if LANG_HAS_MANDATORY_COPY_ELISION
         std::array<std::atomic_int, 3> arr5 = INIT(1, 2, 3);
         ASSERT_EQ(arr5[0].load(), 1);
         ASSERT_EQ(arr5[1].load(), 2);
@@ -366,7 +378,7 @@ int main()
             // Heterogeneous lists.
             // For maps, the element type is never movable (because the first template argument of the pair is const),
             // so we need the mandatory copy elision regardless of the map template arguments.
-            #if HAVE_MANDATORY_COPY_ELISION
+            #if CONTAINERS_HAVE_MANDATORY_COPY_ELISION
             std::map<std::unique_ptr<int>, std::unique_ptr<float>> map3 = INIT(
                 std::make_pair(nullptr, std::make_unique<float>(2.3f)),
                 std::make_pair(std::make_unique<int>(2), std::make_unique<float>(3.4f))
@@ -397,7 +409,7 @@ int main()
 
         { // From lists of lists.
             // All of this needs mandatory copy elision, since constructing a non-movable non-range (`std::pair<const A, B>` in this case) from a list requires it.
-            #if HAVE_MANDATORY_COPY_ELISION
+            #if CONTAINERS_HAVE_MANDATORY_COPY_ELISION
             std::map<std::unique_ptr<int>, std::unique_ptr<float>> map3 = INIT(
                 INIT(std::make_unique<int>(1), std::make_unique<float>(2.3f)),
                 INIT(std::make_unique<int>(2), std::make_unique<float>(3.4f))
@@ -601,8 +613,11 @@ int main()
     }
 
     std::cout << "OK";
-    #if BETTER_INIT_CXX_STANDARD >= 17 && !HAVE_MANDATORY_COPY_ELISION
+    #if BETTER_INIT_CXX_STANDARD >= 17 && !CONTAINERS_HAVE_MANDATORY_COPY_ELISION
     std::cout << " (without mandatory copy elision)";
+    #endif
+    #if BETTER_INIT_ALLOCATOR_HACK
+    std::cout << " (with" << (better_init::detail::allocator_hack::enabled::value ? "" : " inactive") << " allocator hack)";
     #endif
     std::cout << "\n";
 }
