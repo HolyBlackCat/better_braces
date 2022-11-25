@@ -1,11 +1,59 @@
+// To run on https://gcc.godbolt.org, paste following:
+// #include <https://raw.githubusercontent.com/HolyBlackCat/better_init/master/include/better_init.hpp>
+// #include <https://raw.githubusercontent.com/HolyBlackCat/better_init/master/include/tests.cpp>
+// Or paste `better_init.hpp`, followed by this file.
+
+
+// Some code to emulate the MSVC's broken `std::construct_at()` on compilers other than MSVC.
+// Enable this and observe compile-time errors:
+//     make STDLIB=libstdc++ STANDARD=20 CXXFLAGS='-DBREAK_CONSTRUCT_AT'
+// Then enable the allocator hack and observe the lack of errors:
+//     make STDLIB=libstdc++ STANDARD=20 CXXFLAGS='-DBREAK_CONSTRUCT_AT -DBETTER_INIT_ALLOCATOR_HACK=2'
+#if BREAK_CONSTRUCT_AT
+// This has to be above all the includes, to correctly perform the override.
+
+// Make sure we either don't use the allocator hack at all, or force-enable it,
+//   since the compile-time test to conditionally enable it doesn't work
+//   with our broken `std::construct_at()`, since we can't make it SFIANE-friendly.
+#if BETTER_INIT_ALLOCATOR_HACK == 1
+#error "Our broken `std::construct_at()` is not SFINAE-friendly, it doesn't work with `BETTER_INIT_ALLOCATOR_HACK == 1`. Set it to 2."
+#endif
+// Include something to identify the standard library.
+#include <version>
+#ifdef __GLIBCXX__
+namespace std _GLIBCXX_VISIBILITY(default)
+{
+    namespace better_init
+    {
+        template <typename T> T &&declval();
+    }
+
+    _GLIBCXX_BEGIN_NAMESPACE_VERSION
+    template<typename _Tp, typename... _Args>
+    requires true // <-- Make this more specialized.
+    constexpr auto
+    construct_at(_Tp* __location, _Args&&... __args)
+    noexcept(noexcept(::new((void*)0) _Tp(better_init::declval<_Args>()...)))
+    -> decltype(::new((void*)0) _Tp(better_init::declval<_Args>()...))
+    {
+        // .-- Check that the allocator hack didn't call this on a non-movable type.
+        // v   We can't make this SFINAE-friendly, because then we'd just fall back to the stock `std::construct_at()`.
+        static_assert(requires{_Tp(better_init::declval<_Tp &&>());}, "Emulated `std::construct_at` bug!");
+        return ::new((void*)__location) _Tp(static_cast<_Args &&>(__args)...);
+    }
+    _GLIBCXX_END_NAMESPACE_VERSION
+}
+#else
+// Note: there's no implementation for libc++ because the allocator hack doesn't work there anyway. See the comments on `BETTER_INIT_ALLOCATOR_HACK`.
+#error "Don't know how to break `std::construct_at` for this standard library."
+#endif
+#endif
+
+
 #ifndef BETTER_INIT_CONFIG // This lets us run tests on godbolt easier, see below.
 #include "better_init.hpp"
 #endif
 
-// To run on https://gcc.godbolt.org, copy-paste following:
-// #include <https://raw.githubusercontent.com/HolyBlackCat/better_init/master/include/better_init.hpp>
-// #include <https://raw.githubusercontent.com/HolyBlackCat/better_init/master/include/tests.cpp>
-// Or copypaste `better_init.hpp`, followed by this file.
 
 #include <algorithm>
 #include <array>
