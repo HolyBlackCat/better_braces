@@ -213,7 +213,8 @@ namespace better_init
 #endif
 
 // We want avoid including the entire `<iterator>` just to get the iterator tag.
-// And we can't use C++20 iterator category detection, because both libstdc++ and libc++ implement it incorrectly, returning a crap category if `::reference` is an rvalue reference.
+// And we can't use C++20 iterator category detection, because the detection logic is poorly specified to not consider iterators with `::reference` being an rvalue reference.
+// This is an LWG issue: https://cplusplus.github.io/LWG/issue3798
 // If this is enabled, we try to forward-declare `std::random_access_iterator_tag` in a way suitable for the current standard library, falling back to including `<iterator>`.
 // If this is disabled, we just include `<iterator>`.
 #ifndef BETTER_INIT_FORWARD_DECLARE_ITERATOR_TAG
