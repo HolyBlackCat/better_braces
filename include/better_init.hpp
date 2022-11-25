@@ -259,6 +259,7 @@ namespace std _GLIBCXX_VISIBILITY(default)
 {
     _GLIBCXX_BEGIN_NAMESPACE_VERSION
     struct random_access_iterator_tag;
+    _GLIBCXX_END_NAMESPACE_VERSION
 }
 #elif defined(_LIBCPP_VERSION)
 _LIBCPP_BEGIN_NAMESPACE_STD
