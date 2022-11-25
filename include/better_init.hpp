@@ -27,7 +27,7 @@
 
 // The version number: `major*10000 + minor*100 + patch`.
 #ifndef BETTER_INIT_VERSION
-#define BETTER_INIT_VERSION 502
+#define BETTER_INIT_VERSION 600
 #endif
 
 // This file is included by this header automatically, if it exists.
@@ -197,7 +197,7 @@ namespace better_init
 // #elif BETTER_INIT_CXX_STANDARD_DATE >= 201103
 // #define BETTER_INIT_CXX_STANDARD 11
 #else
-#error better_init requires C++14 or newer.
+#error "better_init requires C++14 or newer."
 #endif
 #endif
 
@@ -1220,7 +1220,7 @@ namespace better_init
                     allocator_defines_construct_func<Base, T *, P &&...>::value
                 , nullptr_t> = nullptr>
                 constexpr void construct(T *ptr, P &&... params)
-                noexcept(std::allocator_traits<Base>::construct(static_cast<Base &>(*this), ptr, static_cast<P &&>(params)...))
+                noexcept(std::allocator_traits<Base>::construct(declval<Base &>(), declval<T *>(), declval<P &&>()...))
                 {
                     std::allocator_traits<Base>::construct(static_cast<Base &>(*this), ptr, static_cast<P &&>(params)...);
                 }
@@ -1230,7 +1230,7 @@ namespace better_init
                     is_one_elem_ref<U, P...>::value
                 , nullptr_t> = nullptr>
                 constexpr void construct(T *ptr, U &&param, P &&...)
-                noexcept(noexcept(declval<U &&>()._allocator_hack_construct_at(*this, ptr)))
+                noexcept(noexcept(declval<U &&>()._allocator_hack_construct_at(*this, declval<T *>())))
                 {
                     static_cast<U &&>(param)._allocator_hack_construct_at(*this, ptr);
                 }
