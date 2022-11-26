@@ -109,7 +109,7 @@ namespace better_init
         struct element_type : detail::basic_element_type<T> {};
 
         // How to construct `T` from a pair of iterators. Defaults to `T(begin, end, extra...)`.
-        // Where `extra...` are the arguments passed to `.with(...)`, if any.
+        // Where `extra...` are the arguments passed to `.and_with(...)`, if any.
         template <typename Void, typename T, typename Iter, typename ...P>
         struct construct_range
         {
