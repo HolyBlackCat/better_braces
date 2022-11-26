@@ -1,8 +1,8 @@
-# better_init
+# better_braces
 
 **A replacement for `std::initializer_list` that works with non-copyable types.**
 
-[![tests badge](https://github.com/HolyBlackCat/better_init/actions/workflows/tests.yml/badge.svg?branch=master)](https://github.com/HolyBlackCat/better_init/actions?query=branch%3Amaster)
+[![tests badge](https://github.com/HolyBlackCat/better_braces/actions/workflows/tests.yml/badge.svg?branch=master)](https://github.com/HolyBlackCat/better_braces/actions?query=branch%3Amaster)
 
 ---
 
@@ -17,13 +17,13 @@ std::vector<std::unique_ptr<int>> vec = {nullptr, std::make_unique<int>(42)};
 This library provides a workaround:
 
 ```cpp
-#include <better_init.hpp>
+#include <better_braces.hpp>
 std::vector<std::unique_ptr<int>> vec = init{nullptr, std::make_unique<int>(42)};
 ```
 
 Non-movable types are also supported: (in C++17 and newer)
 ```cpp
-#include <better_init.hpp>
+#include <better_braces.hpp>
 std::vector<std::atomic_int> vec = init{1, 2, 3};
 ```
 
