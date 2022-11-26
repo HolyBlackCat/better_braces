@@ -69,9 +69,9 @@ namespace std _GLIBCXX_VISIBILITY(default)
 
 // Expands to the preferred init list notation for the current language standard.
 #if BETTER_BRACES_ALLOW_BRACES
-#define INIT(...) init{__VA_ARGS__}
+#define INIT(...) better_braces::BETTER_BRACES_IDENTIFIER{__VA_ARGS__}
 #else
-#define INIT(...) init(__VA_ARGS__)
+#define INIT(...) better_braces::BETTER_BRACES_IDENTIFIER(__VA_ARGS__)
 #endif
 
 
@@ -124,14 +124,14 @@ struct HasBeginEnd<T, decltype(void(std::declval<T>().begin()), void(std::declva
 // Get a `init<P...>` value from element types.
 // Causes UB when called, intended only to instantiate templates.
 template <typename ...P>
-better_braces::DETAIL_BETTER_BRACES_CLASS_NAME<P...> &&invalid_init_list()
+better_braces::type::BETTER_BRACES_IDENTIFIER<P...> &&invalid_init_list()
 {
     #ifdef __GNUC__
     #pragma GCC diagnostic push
     #pragma GCC diagnostic ignored "-Wstrict-aliasing"
     #endif
     static int dummy;
-    return reinterpret_cast<better_braces::DETAIL_BETTER_BRACES_CLASS_NAME<P...> &&>(dummy);
+    return reinterpret_cast<better_braces::type::BETTER_BRACES_IDENTIFIER<P...> &&>(dummy);
     #ifdef __GNUC__
     #pragma GCC diagnostic pop
     #endif
@@ -159,9 +159,9 @@ better_braces::DETAIL_BETTER_BRACES_CLASS_NAME<P...> &&invalid_init_list()
 
 // Try to explicitly instantiate the types from `CHECKED_LIST_TYPES`.
 #define CHECK_INSTANTIATION(target_, ...) \
-    template class better_braces::DETAIL_BETTER_BRACES_CLASS_NAME<__VA_ARGS__>; \
-    template class better_braces::DETAIL_BETTER_BRACES_CLASS_NAME<__VA_ARGS__>::elem_iter<target_>; \
-    template class better_braces::DETAIL_BETTER_BRACES_CLASS_NAME<__VA_ARGS__>::elem_ref<target_>;
+    template class better_braces::type::BETTER_BRACES_IDENTIFIER<__VA_ARGS__>; \
+    template class better_braces::type::BETTER_BRACES_IDENTIFIER<__VA_ARGS__>::elem_iter<target_>; \
+    template class better_braces::type::BETTER_BRACES_IDENTIFIER<__VA_ARGS__>::elem_ref<target_>;
 CHECKED_LIST_TYPES(CHECK_INSTANTIATION)
 #undef CHECK_INSTANTIATION
 
