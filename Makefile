@@ -110,7 +110,7 @@ LAST_VER :=
 LAST_COMMIT :=
 -include $(last_version_file)
 
-THIS_VER = $(shell printf "%05d" $$(grep -oP '#define BETTER_INIT_VERSION\s+\K[0-9]+' include/better_init.hpp) | sed -E 's/(.*)(.{2})(.{2})/\1.\2.\3/')
+THIS_VER = $(shell printf "%05d" $$(grep -oP '#define BETTER_BRACES_VERSION\s+\K[0-9]+' include/better_braces.hpp) | sed -E 's/(.*)(.{2})(.{2})/\1.\2.\3/')
 $(if $(THIS_VER),,$(error Unable to determine the version number from the header.))
 
 THIS_COMMIT := $(shell git describe --always --abbrev=0 --match "NOT A TAG" --dirty=-dirty)

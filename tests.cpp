@@ -1,29 +1,29 @@
 // To run on https://gcc.godbolt.org, paste following:
-// #include <https://raw.githubusercontent.com/HolyBlackCat/better_init/master/include/better_init.hpp>
-// #include <https://raw.githubusercontent.com/HolyBlackCat/better_init/master/include/tests.cpp>
-// Or paste `better_init.hpp`, followed by this file.
+// #include <https://raw.githubusercontent.com/HolyBlackCat/better_braces/master/include/better_braces.hpp>
+// #include <https://raw.githubusercontent.com/HolyBlackCat/better_braces/master/include/tests.cpp>
+// Or paste `better_braces.hpp`, followed by this file.
 
 
 // Some code to emulate the MSVC's broken `std::construct_at()` on compilers other than MSVC.
 // Enable this and observe compile-time errors:
 //     make STDLIB=libstdc++ STANDARD=20 CXXFLAGS='-DBREAK_CONSTRUCT_AT'
 // Then enable the allocator hack and observe the lack of errors:
-//     make STDLIB=libstdc++ STANDARD=20 CXXFLAGS='-DBREAK_CONSTRUCT_AT -DBETTER_INIT_ALLOCATOR_HACK=2'
+//     make STDLIB=libstdc++ STANDARD=20 CXXFLAGS='-DBREAK_CONSTRUCT_AT -DBETTER_BRACES_ALLOCATOR_HACK=2'
 #if BREAK_CONSTRUCT_AT
 // This has to be above all the includes, to correctly perform the override.
 
 // Make sure we either don't use the allocator hack at all, or force-enable it,
 //   since the compile-time test to conditionally enable it doesn't work
 //   with our broken `std::construct_at()`, since we can't make it SFIANE-friendly.
-#if BETTER_INIT_ALLOCATOR_HACK == 1
-#error "Our broken `std::construct_at()` is not SFINAE-friendly, it doesn't work with `BETTER_INIT_ALLOCATOR_HACK == 1`. Set it to 2."
+#if BETTER_BRACES_ALLOCATOR_HACK == 1
+#error "Our broken `std::construct_at()` is not SFINAE-friendly, it doesn't work with `BETTER_BRACES_ALLOCATOR_HACK == 1`. Set it to 2."
 #endif
 // Include something to identify the standard library.
 #include <version>
 #ifdef __GLIBCXX__
 namespace std _GLIBCXX_VISIBILITY(default)
 {
-    namespace better_init
+    namespace better_braces
     {
         template <typename T> T &&declval();
     }
@@ -33,25 +33,25 @@ namespace std _GLIBCXX_VISIBILITY(default)
     requires true // <-- Make this more specialized.
     constexpr auto
     construct_at(_Tp* __location, _Args&&... __args)
-    noexcept(noexcept(::new((void*)0) _Tp(better_init::declval<_Args>()...)))
-    -> decltype(::new((void*)0) _Tp(better_init::declval<_Args>()...))
+    noexcept(noexcept(::new((void*)0) _Tp(better_braces::declval<_Args>()...)))
+    -> decltype(::new((void*)0) _Tp(better_braces::declval<_Args>()...))
     {
         // .-- Check that the allocator hack didn't call this on a non-movable type.
         // v   We can't make this SFINAE-friendly, because then we'd just fall back to the stock `std::construct_at()`.
-        static_assert(requires{_Tp(better_init::declval<_Tp &&>());}, "Emulated `std::construct_at` bug!");
+        static_assert(requires{_Tp(better_braces::declval<_Tp &&>());}, "Emulated `std::construct_at` bug!");
         return ::new((void*)__location) _Tp(static_cast<_Args &&>(__args)...);
     }
     _GLIBCXX_END_NAMESPACE_VERSION
 }
 #else
-// Note: there's no implementation for libc++ because the allocator hack doesn't work there anyway. See the comments on `BETTER_INIT_ALLOCATOR_HACK`.
+// Note: there's no implementation for libc++ because the allocator hack doesn't work there anyway. See the comments on `BETTER_BRACES_ALLOCATOR_HACK`.
 #error "Don't know how to break `std::construct_at` for this standard library."
 #endif
 #endif
 
 
-#ifndef BETTER_INIT_CONFIG // This lets us run tests on godbolt easier, see below.
-#include "better_init.hpp"
+#ifndef BETTER_BRACES_CONFIG // This lets us run tests on godbolt easier, see below.
+#include "better_braces.hpp"
 #endif
 
 
@@ -68,7 +68,7 @@ namespace std _GLIBCXX_VISIBILITY(default)
 
 
 // Expands to the preferred init list notation for the current language standard.
-#if BETTER_INIT_ALLOW_BRACES
+#if BETTER_BRACES_ALLOW_BRACES
 #define INIT(...) init{__VA_ARGS__}
 #else
 #define INIT(...) init(__VA_ARGS__)
@@ -77,7 +77,7 @@ namespace std _GLIBCXX_VISIBILITY(default)
 
 // Whether we have the mandatory copy elision.
 #ifndef LANG_HAS_MANDATORY_COPY_ELISION
-#if BETTER_INIT_CXX_STANDARD >= 17
+#if BETTER_BRACES_CXX_STANDARD >= 17
 #define LANG_HAS_MANDATORY_COPY_ELISION 1
 #else
 #define LANG_HAS_MANDATORY_COPY_ELISION 0
@@ -87,7 +87,7 @@ namespace std _GLIBCXX_VISIBILITY(default)
 // Whether we have the mandatory copy elision (and no bugged `std::consturct_at()`) OR the allocator hack.
 #ifndef CONTAINERS_HAVE_MANDATORY_COPY_ELISION
 // Work around MSVC issue https://github.com/microsoft/STL/issues/2620, which breaks mandatory copy elision in C++20 mode.
-#if BETTER_INIT_ALLOCATOR_HACK || (BETTER_INIT_CXX_STANDARD >= 17 && (!defined(_MSC_VER) || _MSC_VER > 1933 || BETTER_INIT_CXX_STANDARD < 20))
+#if BETTER_BRACES_ALLOCATOR_HACK || (BETTER_BRACES_CXX_STANDARD >= 17 && (!defined(_MSC_VER) || _MSC_VER > 1933 || BETTER_BRACES_CXX_STANDARD < 20))
 #define CONTAINERS_HAVE_MANDATORY_COPY_ELISION 1
 #else
 #define CONTAINERS_HAVE_MANDATORY_COPY_ELISION 0
@@ -100,7 +100,7 @@ namespace std _GLIBCXX_VISIBILITY(default)
         if (!bool(__VA_ARGS__)) \
         { \
             std::cout << "Check failed at " __FILE__ ":" << __LINE__ << ": " #__VA_ARGS__ "\n"; \
-            better_init::detail::abort(); \
+            better_braces::detail::abort(); \
         } \
     } \
     while (false)
@@ -110,7 +110,7 @@ namespace std _GLIBCXX_VISIBILITY(default)
         if (a != b) \
         { \
             std::cout << "Check failed at " __FILE__ ":" << __LINE__ << ": " #a " == " #b ", expanded to " << a << " == " << b << "\n"; \
-            better_init::detail::abort(); \
+            better_braces::detail::abort(); \
         } \
     } \
     while (false)
@@ -124,14 +124,14 @@ struct HasBeginEnd<T, decltype(void(std::declval<T>().begin()), void(std::declva
 // Get a `init<P...>` value from element types.
 // Causes UB when called, intended only to instantiate templates.
 template <typename ...P>
-better_init::DETAIL_BETTER_INIT_CLASS_NAME<P...> &&invalid_init_list()
+better_braces::DETAIL_BETTER_BRACES_CLASS_NAME<P...> &&invalid_init_list()
 {
     #ifdef __GNUC__
     #pragma GCC diagnostic push
     #pragma GCC diagnostic ignored "-Wstrict-aliasing"
     #endif
     static int dummy;
-    return reinterpret_cast<better_init::DETAIL_BETTER_INIT_CLASS_NAME<P...> &&>(dummy);
+    return reinterpret_cast<better_braces::DETAIL_BETTER_BRACES_CLASS_NAME<P...> &&>(dummy);
     #ifdef __GNUC__
     #pragma GCC diagnostic pop
     #endif
@@ -159,9 +159,9 @@ better_init::DETAIL_BETTER_INIT_CLASS_NAME<P...> &&invalid_init_list()
 
 // Try to explicitly instantiate the types from `CHECKED_LIST_TYPES`.
 #define CHECK_INSTANTIATION(target_, ...) \
-    template class better_init::DETAIL_BETTER_INIT_CLASS_NAME<__VA_ARGS__>; \
-    template class better_init::DETAIL_BETTER_INIT_CLASS_NAME<__VA_ARGS__>::elem_iter<target_>; \
-    template class better_init::DETAIL_BETTER_INIT_CLASS_NAME<__VA_ARGS__>::elem_ref<target_>;
+    template class better_braces::DETAIL_BETTER_BRACES_CLASS_NAME<__VA_ARGS__>; \
+    template class better_braces::DETAIL_BETTER_BRACES_CLASS_NAME<__VA_ARGS__>::elem_iter<target_>; \
+    template class better_braces::DETAIL_BETTER_BRACES_CLASS_NAME<__VA_ARGS__>::elem_ref<target_>;
 CHECKED_LIST_TYPES(CHECK_INSTANTIATION)
 #undef CHECK_INSTANTIATION
 
@@ -174,7 +174,7 @@ struct IteratorCategoryChecker
     template <typename U>
     IteratorCategoryChecker(U, U)
     {
-        #if BETTER_INIT_CXX_STANDARD >= 20
+        #if BETTER_BRACES_CXX_STANDARD >= 20
         static_assert(std::random_access_iterator<U>, "The iterator concept wasn't satisfied.");
         #endif
         static_assert(std::is_same<typename std::iterator_traits<U>::iterator_category, std::random_access_iterator_tag>::value, "Wrong iterator category.");
@@ -661,11 +661,11 @@ int main()
     }
 
     std::cout << "OK";
-    #if BETTER_INIT_CXX_STANDARD >= 17 && !CONTAINERS_HAVE_MANDATORY_COPY_ELISION
+    #if BETTER_BRACES_CXX_STANDARD >= 17 && !CONTAINERS_HAVE_MANDATORY_COPY_ELISION
     std::cout << " (without mandatory copy elision)";
     #endif
-    #if BETTER_INIT_ALLOCATOR_HACK
-    std::cout << " (with" << (better_init::detail::allocator_hack::enabled::value ? "" : " inactive") << " allocator hack)";
+    #if BETTER_BRACES_ALLOCATOR_HACK
+    std::cout << " (with" << (better_braces::detail::allocator_hack::enabled::value ? "" : " inactive") << " allocator hack)";
     #endif
     std::cout << "\n";
 }
