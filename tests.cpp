@@ -7,7 +7,9 @@
 // Some code to emulate the MSVC's broken `std::construct_at()` on compilers other than MSVC.
 // Enable this and observe compile-time errors:
 //     make STDLIB=libstdc++ STANDARD=20 CXXFLAGS='-DBREAK_CONSTRUCT_AT'
-// Then enable the allocator hack and observe the lack of errors:
+// Disable the respective tests and observe the lack of errors:
+//     make STDLIB=libstdc++ STANDARD=20 CXXFLAGS='-DBREAK_CONSTRUCT_AT -DCONTAINERS_HAVE_MANDATORY_COPY_ELISION=0'
+// Enable the allocator hack and observe the lack of errors:
 //     make STDLIB=libstdc++ STANDARD=20 CXXFLAGS='-DBREAK_CONSTRUCT_AT -DBETTER_BRACES_ALLOCATOR_HACK=2'
 #if BREAK_CONSTRUCT_AT
 // This has to be above all the includes, to correctly perform the override.
@@ -18,7 +20,8 @@
 #if BETTER_BRACES_ALLOCATOR_HACK == 1
 #error "Our broken `std::construct_at()` is not SFINAE-friendly, it doesn't work with `BETTER_BRACES_ALLOCATOR_HACK == 1`. Set it to 2."
 #endif
-// Include something to identify the standard library.
+// Include something to identify the standard library,
+// but without calling `std::construct_at` before we break it.
 #include <version>
 #ifdef __GLIBCXX__
 namespace std _GLIBCXX_VISIBILITY(default)
@@ -29,17 +32,20 @@ namespace std _GLIBCXX_VISIBILITY(default)
     }
 
     _GLIBCXX_BEGIN_NAMESPACE_VERSION
-    template<typename _Tp, typename... _Args>
-    requires true // <-- Make this more specialized.
-    constexpr auto
-    construct_at(_Tp* __location, _Args&&... __args)
-    noexcept(noexcept(::new((void*)0) _Tp(better_braces::declval<_Args>()...)))
-    -> decltype(::new((void*)0) _Tp(better_braces::declval<_Args>()...))
+    template <typename T, typename U>
+    constexpr auto construct_at(T *ptr, U &&param)
+    noexcept(noexcept(::new((void *)nullptr) T(better_braces::declval<U>())))
+    -> decltype(::new((void *)nullptr) T(better_braces::declval<U>()))
     {
         // .-- Check that the allocator hack didn't call this on a non-movable type.
         // v   We can't make this SFINAE-friendly, because then we'd just fall back to the stock `std::construct_at()`.
-        static_assert(requires{_Tp(better_braces::declval<_Tp &&>());}, "Emulated `std::construct_at` bug!");
-        return ::new((void*)__location) _Tp(static_cast<_Args &&>(__args)...);
+        static_assert(!(
+            // If `T` is not move-constructible, and
+            !requires{T(better_braces::declval<T &&>());} &&
+            // if `U::operator T()` is a thing.
+            requires{param.operator T();}
+        ), "Emulated `std::construct_at` bug!");
+        return ::new((void*)ptr) T(static_cast<U &&>(param));
     }
     _GLIBCXX_END_NAMESPACE_VERSION
 }
