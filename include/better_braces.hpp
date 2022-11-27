@@ -1,6 +1,11 @@
 #pragma once
 
-// better_braces
+// ~ better_braces ~
+// Provides a way to initialize containers of non-movable types, since `std::initializer_list` doesn't move anything.
+// Minimal usage example: `std::vector<T> foo = init{...};` instead of `= {...}`.
+// See the readme for more details.
+
+// The latest version is hosted at: https://github.com/HolyBlackCat/better_braces
 
 // License: ZLIB
 
