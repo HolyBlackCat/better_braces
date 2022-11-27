@@ -363,7 +363,7 @@ int main()
         ASSERT(vec1[0] == nullptr);
         ASSERT(vec1[1] != nullptr && *vec1[1] == 42);
 
-        std::vector<std::atomic_int> vec2 = INIT(1, 2, 3);
+        std::vector<std::atomic_int> vec2 = INIT(1, 2, 3).and_with(std::allocator<std::unique_ptr<int>>{});
         ASSERT_EQ(vec2.size(), 3);
         ASSERT_EQ(vec2[0].load(), 1);
         ASSERT_EQ(vec2[1].load(), 2);
