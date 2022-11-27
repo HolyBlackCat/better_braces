@@ -113,9 +113,9 @@ namespace std _GLIBCXX_VISIBILITY(default)
 
 #define ASSERT_EQ(a, b) \
     do { \
-        if (a != b) \
+        if ((a) != (b)) \
         { \
-            std::cout << "Check failed at " __FILE__ ":" << __LINE__ << ": " #a " == " #b ", expanded to " << a << " == " << b << "\n"; \
+            std::cout << "Check failed at " __FILE__ ":" << __LINE__ << ": " #a " == " #b ", expanded to " << (a) << " == " << (b) << "\n"; \
             better_braces::detail::abort(); \
         } \
     } \
@@ -430,15 +430,23 @@ int main()
             ASSERT_EQ(map2.at(3).load(), 4);
 
             // Heterogeneous lists.
-            // For maps, the element type is never movable (because the first template argument of the pair is const),
-            // so we need the mandatory copy elision regardless of the map template arguments.
+            // For maps, the key is never movable (because the first template argument of the pair is const),
+            // so we need the mandatory copy elision if the key is not copyable (or if the value is not movable, of course).
+            std::map<int, std::unique_ptr<float>> map3 = INIT(
+                std::make_pair(short(1), std::make_unique<float>(2.3f)),
+                std::make_pair(2, std::make_unique<float>(3.4f))
+            );
+            ASSERT_EQ(map3.size(), 2);
+            ASSERT_EQ(*map3.at(1), 2.3f);
+            ASSERT_EQ(*map3.at(2), 3.4f);
+
             #if CONTAINERS_HAVE_MANDATORY_COPY_ELISION
-            std::map<std::unique_ptr<int>, std::unique_ptr<float>> map3 = INIT(
+            std::map<std::unique_ptr<int>, std::unique_ptr<float>> map4 = INIT(
                 std::make_pair(nullptr, std::make_unique<float>(2.3f)),
                 std::make_pair(std::make_unique<int>(2), std::make_unique<float>(3.4f))
             );
-            ASSERT_EQ(map3.size(), 2);
-            for (const auto &elem : map3)
+            ASSERT_EQ(map4.size(), 2);
+            for (const auto &elem : map4)
             {
                 if (!elem.first)
                 {
@@ -451,25 +459,29 @@ int main()
                 }
             }
 
-            std::map<std::atomic_int, std::atomic_int> map4 = INIT(
+            std::map<std::atomic_int, std::atomic_int> map5 = INIT(
                 std::make_pair(short(1), 2),
                 std::make_pair(3, 4)
             );
-            ASSERT_EQ(map4.size(), 2);
-            ASSERT_EQ(map4.at(1).load(), 2);
-            ASSERT_EQ(map4.at(3).load(), 4);
+            ASSERT_EQ(map5.size(), 2);
+            ASSERT_EQ(map5.at(1).load(), 2);
+            ASSERT_EQ(map5.at(3).load(), 4);
             #endif
         }
 
         { // From lists of lists.
-            // All of this needs mandatory copy elision, since constructing a non-movable non-range (`std::pair<const A, B>` in this case) from a list requires it.
+            // If the map key is not copyable, all of this requires mandatory copy elision, even if the list is homogeneous,
+            // since constructing a non-movable non-range (`std::pair<const A, B>` in this case) from a list
+            // from a list requires mandatory copy elision, because we need to return it from a function.
+
+            // Homogeneous lists.
             #if CONTAINERS_HAVE_MANDATORY_COPY_ELISION
-            std::map<std::unique_ptr<int>, std::unique_ptr<float>> map3 = INIT(
+            std::map<std::unique_ptr<int>, std::unique_ptr<float>> map1 = INIT(
                 INIT(std::make_unique<int>(1), std::make_unique<float>(2.3f)),
                 INIT(std::make_unique<int>(2), std::make_unique<float>(3.4f))
             );
-            ASSERT_EQ(map3.size(), 2);
-            for (const auto &elem : map3)
+            ASSERT_EQ(map1.size(), 2);
+            for (const auto &elem : map1)
             {
                 if (*elem.first == 1)
                     ASSERT_EQ(*elem.second, 2.3f);
@@ -477,20 +489,33 @@ int main()
                     ASSERT_EQ(*elem.second, 3.4f);
             }
 
-            std::map<std::atomic_int, std::atomic_int> map4 = INIT(
+            std::map<std::atomic_int, std::atomic_int> map2 = INIT(
                 INIT(1, 2),
                 INIT(3, 4)
             );
-            ASSERT_EQ(map4.size(), 2);
-            ASSERT_EQ(map4.at(1).load(), 2);
-            ASSERT_EQ(map4.at(3).load(), 4);
+            ASSERT_EQ(map2.size(), 2);
+            ASSERT_EQ(map2.at(1).load(), 2);
+            ASSERT_EQ(map2.at(3).load(), 4);
+            #endif
 
-            std::map<std::unique_ptr<int>, std::unique_ptr<float>> map5 = INIT(
+            // Heterogeneous lists.
+
+            // Here the map key type is copyable, so we don't need the mandatory copy elision.
+            std::map<int, std::unique_ptr<float>> map3 = INIT(
+                INIT(short(1), std::make_unique<float>(2.3f)),
+                INIT(2, std::make_unique<float>(3.4f))
+            );
+            ASSERT_EQ(map3.size(), 2);
+            ASSERT_EQ(*map3.at(1), 2.3f);
+            ASSERT_EQ(*map3.at(2), 3.4f);
+
+            #if CONTAINERS_HAVE_MANDATORY_COPY_ELISION
+            std::map<std::unique_ptr<int>, std::unique_ptr<float>> map4 = INIT(
                 INIT(nullptr, std::make_unique<float>(2.3f)),
                 INIT(std::make_unique<int>(2), std::make_unique<float>(3.4f))
             );
-            ASSERT_EQ(map5.size(), 2);
-            for (const auto &elem : map5)
+            ASSERT_EQ(map4.size(), 2);
+            for (const auto &elem : map4)
             {
                 if (!elem.first)
                 {
