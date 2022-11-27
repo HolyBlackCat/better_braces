@@ -421,7 +421,7 @@ int main()
                     ASSERT_EQ(*elem.second, 3.4f);
             }
 
-            std::map<int, std::atomic_int> map2 = INIT(
+            std::map<std::atomic_int, std::atomic_int> map2 = INIT(
                 std::make_pair(1, 2),
                 std::make_pair(3, 4)
             );
@@ -451,7 +451,7 @@ int main()
                 }
             }
 
-            std::map<int, std::atomic_int> map4 = INIT(
+            std::map<std::atomic_int, std::atomic_int> map4 = INIT(
                 std::make_pair(short(1), 2),
                 std::make_pair(3, 4)
             );
@@ -477,7 +477,7 @@ int main()
                     ASSERT_EQ(*elem.second, 3.4f);
             }
 
-            std::map<int, std::atomic_int> map4 = INIT(
+            std::map<std::atomic_int, std::atomic_int> map4 = INIT(
                 INIT(1, 2),
                 INIT(3, 4)
             );
@@ -503,7 +503,7 @@ int main()
                 }
             }
 
-            std::map<int, std::atomic_int> map6 = INIT(
+            std::map<std::atomic_int, std::atomic_int> map6 = INIT(
                 INIT(short(1), 2),
                 INIT(3, 4)
             );
