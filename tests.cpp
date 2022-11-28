@@ -77,9 +77,9 @@ namespace std _GLIBCXX_VISIBILITY(default)
 
 // Expands to the preferred init list notation for the current language standard.
 #if BETTER_BRACES_ALLOW_BRACES
-#define INIT(...) better_braces::BETTER_BRACES_IDENTIFIER{__VA_ARGS__}
+#define INIT(...) BETTER_BRACES_INIT{__VA_ARGS__}
 #else
-#define INIT(...) better_braces::BETTER_BRACES_IDENTIFIER(__VA_ARGS__)
+#define INIT(...) BETTER_BRACES_INIT(__VA_ARGS__)
 #endif
 
 

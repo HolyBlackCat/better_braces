@@ -32,7 +32,7 @@
 
 // The version number: `major*10000 + minor*100 + patch`.
 #ifndef BETTER_BRACES_VERSION
-#define BETTER_BRACES_VERSION 801
+#define BETTER_BRACES_VERSION 900
 #endif
 
 // This file is included by this header automatically, if it exists.
@@ -1078,7 +1078,13 @@ namespace better_braces
 using better_braces::BETTER_BRACES_IDENTIFIER;
 #endif
 
+// The stable ways to interact with the library, unaffected by `BETTER_BRACES_IDENTIFIER`.
+// Those are intended for dependent library implementers.
+#define BETTER_BRACES_INIT ::better_braces::BETTER_BRACES_IDENTIFIER
+#define BETTER_BRACES_TYPE ::better_braces::type::BETTER_BRACES_IDENTIFIER
 
+
+// The allocator hack.
 // See the macro definition for details.
 #if BETTER_BRACES_ALLOCATOR_HACK
 namespace better_braces
