@@ -32,7 +32,7 @@
 
 // The version number: `major*10000 + minor*100 + patch`.
 #ifndef BETTER_BRACES_VERSION
-#define BETTER_BRACES_VERSION 800
+#define BETTER_BRACES_VERSION 801
 #endif
 
 // This file is included by this header automatically, if it exists.
@@ -50,9 +50,6 @@
 
 namespace better_braces
 {
-    template <typename T>
-    struct tag {using type = T;};
-
     namespace detail
     {
         // Convertible to any `std::initializer_list<??>`.
