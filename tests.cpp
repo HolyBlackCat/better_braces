@@ -70,6 +70,7 @@ namespace std _GLIBCXX_VISIBILITY(default)
 #include <iterator>
 #include <map>
 #include <memory>
+#include <set>
 #include <utility>
 #include <vector>
 
@@ -538,6 +539,21 @@ int main()
             ASSERT_EQ(map6.at(3).load(), 4);
             #endif
         }
+    }
+
+    { // Sets.
+        // The sets are special, because they have const elements.
+        std::set<int> set1 = INIT(1, 2, 3);
+        ASSERT_EQ(set1.size(), 3);
+        ASSERT(set1.count(1));
+        ASSERT(set1.count(2));
+        ASSERT(set1.count(3));
+
+        std::set<std::atomic_int> set2 = INIT(1, 2, 3);
+        ASSERT_EQ(set2.size(), 3);
+        ASSERT(set2.count(1));
+        ASSERT(set2.count(2));
+        ASSERT(set2.count(3));
     }
 
     { // Explicit and implicit construction.
