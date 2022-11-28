@@ -5,6 +5,7 @@
 
 
 // Some code to emulate the MSVC's broken `std::construct_at()` on compilers other than MSVC.
+// Our emulation appears to be weaker than the actual bug (doesn't trigger in all cases).
 // Enable this and observe compile-time errors:
 //     make STDLIB=libstdc++ STANDARD=20 CXXFLAGS='-DBREAK_CONSTRUCT_AT'
 // Disable the respective tests and observe the lack of errors:

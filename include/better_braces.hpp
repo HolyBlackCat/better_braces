@@ -32,7 +32,7 @@
 
 // The version number: `major*10000 + minor*100 + patch`.
 #ifndef BETTER_BRACES_VERSION
-#define BETTER_BRACES_VERSION 700
+#define BETTER_BRACES_VERSION 800
 #endif
 
 // This file is included by this header automatically, if it exists.
@@ -1195,12 +1195,26 @@ namespace better_braces
             // Whether the allocator `T` defines `.construct(declval<P>()...)`.
             // If it doesn't do so, we can replace `allocator_traits<T>::construct()` with placement-new.
             // Note that `P[0]` is a pointer to the target location.
+            // You're allowed to specialize `allocator_defines_construct_func`.
+            // We separate the implementation into `default_allocator_defines_construct_func` to not mess with user specializations.
             template <typename Void, typename T, typename ...P>
-            struct allocator_defines_construct_func : std::false_type {};
+            struct default_allocator_defines_construct_func : std::false_type {};
             #if !BETTER_BRACES_ALLOCATOR_HACK_IGNORE_EXISTING_CONSTRUCT_FUNC
             template <typename T, typename ...P>
-            struct allocator_defines_construct_func<decltype(void(declval<T>().construct(declval<P>()...))), T, P...> : std::true_type {};
+            struct default_allocator_defines_construct_func<decltype(void(declval<T>().construct(declval<P>()...))), T, P...> : std::true_type {};
             #endif
+            template <typename Void, typename T, typename ...P>
+            struct allocator_defines_construct_func : default_allocator_defines_construct_func<void, T, P...> {};
+
+            // Whether initializing `T` with `U` uses `U`'s conversion operator to `T`.
+            // You're allowed to specialize `is_conversion_operator_init`.
+            // We separate the implementation into `default_is_conversion_operator_init` to not mess with user specializations.
+            template <typename T, typename U, typename = void>
+            struct default_is_conversion_operator_init : std::false_type {};
+            template <typename T, typename U>
+            struct default_is_conversion_operator_init<T, U, decltype(void(std::declval<U>().operator T()))> : std::true_type {};
+            template <typename T, typename U, typename = void>
+            struct is_conversion_operator_init : default_is_conversion_operator_init<T, U> {};
 
             template <typename Base>
             struct modified_allocator : Base
@@ -1259,7 +1273,10 @@ namespace better_braces
         struct default_construct_range<
             std::enable_if_t<
                 detail::allocator_hack::enabled::value && // If the compile-time detection finds the `std::construct_at()` bug, and
-                !List::is_homogeneous && // if the list is heterogeneous, and
+                (
+                    !List::is_homogeneous || // either the list is heterogeneous, or
+                    detail::allocator_hack::is_conversion_operator_init<typename custom::element_type<T>::type, typename List::homogeneous_type>::value // it's homogeneous, but the initialization uses `operator T`
+                ) && // and...
                 !std::is_move_constructible<typename custom::element_type<T>::type>::value && // if the type is not move-constructible, and
                 detail::allocator_hack::has_replaceable_allocator<T>::value // if there's an allocator we can replace.
             >,
