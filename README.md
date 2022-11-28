@@ -2,7 +2,8 @@
 
 **Initialize containers of non-copyable types, which otherwise don't support `std::initializer_list` constructors.**
 
-[![tests badge](https://github.com/HolyBlackCat/better_braces/actions/workflows/tests.yml/badge.svg?branch=master)](https://github.com/HolyBlackCat/better_braces/actions?query=branch%3Amaster)
+[![tests badge](https://github.com/HolyBlackCat/better_braces/actions/workflows/tests.yml/badge.svg?branch=master)](https://github.com/HolyBlackCat/better_braces/actions?query=branch%3Amaster)<br/>
+<kbd>[Try on gcc.godbolt.org][1]</kbd>
 
 <details><summary>Table of contents</summary>
 <p>
@@ -246,3 +247,7 @@ Because of that:
 * If you need to refer to the type, spell it as `better_braces::type::init`. (Or rather, `better_braces::type::BETTER_BRACES_IDENTIFIER`.)
 
 * C++14 doesn't have `std::is_aggregate` (no kidding). We consider `std::array` to be the only aggregate, **but** this only matters if the type has a `::value_type` typedef. So if you want to initialize an aggregate that has this typedef, specialize `better_braces::details::is_aggregate` for it.
+
+
+
+  [1]: https://godbolt.org/#g:!((g:!((g:!((h:codeEditor,i:(filename:'1',fontScale:14,fontUsePx:'0',j:1,lang:c%2B%2B,selection:(endColumn:1,endLineNumber:21,positionColumn:1,positionLineNumber:21,selectionStartColumn:1,selectionStartLineNumber:21,startColumn:1,startLineNumber:21),source:'%23include+%3Chttps://raw.githubusercontent.com/HolyBlackCat/better_braces/master/include/better_braces.hpp%3E%0A%0A%23include+%3Catomic%3E%0A%23include+%3Ciostream%3E%0A%23include+%3Cmemory%3E%0A%23include+%3Cvector%3E%0A%0Aint+main()%0A%7B%0A++++//+std::vector%3Cstd::unique_ptr%3Cint%3E%3E+foo+%3D+%7Bnullptr,+std::make_unique%3Cint%3E(42)%7D%3B%0A++++std::vector%3Cstd::unique_ptr%3Cint%3E%3E+foo+%3D+init%7Bnullptr,+std::make_unique%3Cint%3E(42)%7D%3B%0A++++std::cout+%3C%3C+foo.at(0)+%3C%3C+!'%5Cn!'%3B%0A++++std::cout+%3C%3C+foo.at(1)+%3C%3C+%22+-%3E+%22+%3C%3C+*foo.at(1)+%3C%3C+!'%5Cn!'%3B%0A++++std::cout+%3C%3C+!'%5Cn!'%3B%0A++++%0A++++//+std::vector%3Cstd::atomic_int%3E+bar+%3D+%7B1,+2,+3%7D%3B%0A++++std::vector%3Cstd::atomic_int%3E+bar+%3D+init%7B1,+2,+3%7D%3B%0A++++for+(const+auto+%26elem+:+bar)%0A++++++++std::cout+%3C%3C+elem.load()+%3C%3C+!'%5Cn!'%3B%0A%7D%0A'),l:'5',n:'0',o:'C%2B%2B+source+%231',t:'0')),k:50.6226993728496,l:'4',n:'0',o:'',s:0,t:'0'),(g:!((g:!((h:compiler,i:(compiler:clang1500,deviceViewOpen:'1',filters:(b:'0',binary:'1',commentOnly:'0',demangle:'0',directives:'0',execute:'0',intel:'1',libraryCode:'1',trim:'0'),flagsViewOpen:'1',fontScale:14,fontUsePx:'0',j:1,lang:c%2B%2B,libs:!(),options:'-std%3Dc%2B%2B20+-Wall+-Wextra+-pedantic-errors+-g+-fsanitize%3Dundefined,address+-D_GLIBCXX_DEBUG+-Wno-pragma-once-outside-header',selection:(endColumn:1,endLineNumber:1,positionColumn:1,positionLineNumber:1,selectionStartColumn:1,selectionStartLineNumber:1,startColumn:1,startLineNumber:1),source:1),l:'5',n:'0',o:'+x86-64+clang+15.0.0+(Editor+%231)',t:'0')),header:(),k:31.394545063431934,l:'4',m:50,n:'0',o:'',s:0,t:'0'),(g:!((h:output,i:(compilerName:'x86-64+gcc+(trunk)',editorid:1,fontScale:14,fontUsePx:'0',j:1,wrap:'1'),l:'5',n:'0',o:'Output+of+x86-64+clang+15.0.0+(Compiler+%231)',t:'0')),header:(),l:'4',m:50,n:'0',o:'',s:0,t:'0')),k:48.95267217704424,l:'3',n:'0',o:'',t:'0')),l:'2',n:'0',o:'',t:'0')),version:4
