@@ -5,9 +5,12 @@
 
 
 // Some code to emulate the MSVC's broken `std::construct_at()` on compilers other than MSVC.
+// Our emulation appears to be weaker than the actual bug (doesn't trigger in all cases).
 // Enable this and observe compile-time errors:
 //     make STDLIB=libstdc++ STANDARD=20 CXXFLAGS='-DBREAK_CONSTRUCT_AT'
-// Then enable the allocator hack and observe the lack of errors:
+// Disable the respective tests and observe the lack of errors:
+//     make STDLIB=libstdc++ STANDARD=20 CXXFLAGS='-DBREAK_CONSTRUCT_AT -DCONTAINERS_HAVE_MANDATORY_COPY_ELISION=0'
+// Enable the allocator hack and observe the lack of errors:
 //     make STDLIB=libstdc++ STANDARD=20 CXXFLAGS='-DBREAK_CONSTRUCT_AT -DBETTER_BRACES_ALLOCATOR_HACK=2'
 #if BREAK_CONSTRUCT_AT
 // This has to be above all the includes, to correctly perform the override.
@@ -18,7 +21,8 @@
 #if BETTER_BRACES_ALLOCATOR_HACK == 1
 #error "Our broken `std::construct_at()` is not SFINAE-friendly, it doesn't work with `BETTER_BRACES_ALLOCATOR_HACK == 1`. Set it to 2."
 #endif
-// Include something to identify the standard library.
+// Include something to identify the standard library,
+// but without calling `std::construct_at` before we break it.
 #include <version>
 #ifdef __GLIBCXX__
 namespace std _GLIBCXX_VISIBILITY(default)
@@ -29,17 +33,20 @@ namespace std _GLIBCXX_VISIBILITY(default)
     }
 
     _GLIBCXX_BEGIN_NAMESPACE_VERSION
-    template<typename _Tp, typename... _Args>
-    requires true // <-- Make this more specialized.
-    constexpr auto
-    construct_at(_Tp* __location, _Args&&... __args)
-    noexcept(noexcept(::new((void*)0) _Tp(better_braces::declval<_Args>()...)))
-    -> decltype(::new((void*)0) _Tp(better_braces::declval<_Args>()...))
+    template <typename T, typename U>
+    constexpr auto construct_at(T *ptr, U &&param)
+    noexcept(noexcept(::new((void *)nullptr) T(better_braces::declval<U>())))
+    -> decltype(::new((void *)nullptr) T(better_braces::declval<U>()))
     {
         // .-- Check that the allocator hack didn't call this on a non-movable type.
         // v   We can't make this SFINAE-friendly, because then we'd just fall back to the stock `std::construct_at()`.
-        static_assert(requires{_Tp(better_braces::declval<_Tp &&>());}, "Emulated `std::construct_at` bug!");
-        return ::new((void*)__location) _Tp(static_cast<_Args &&>(__args)...);
+        static_assert(!(
+            // If `T` is not move-constructible, and
+            !requires{T(better_braces::declval<T &&>());} &&
+            // if `U::operator T()` is a thing.
+            requires{param.operator T();}
+        ), "Emulated `std::construct_at` bug!");
+        return ::new((void*)ptr) T(static_cast<U &&>(param));
     }
     _GLIBCXX_END_NAMESPACE_VERSION
 }
@@ -63,15 +70,16 @@ namespace std _GLIBCXX_VISIBILITY(default)
 #include <iterator>
 #include <map>
 #include <memory>
+#include <set>
 #include <utility>
 #include <vector>
 
 
 // Expands to the preferred init list notation for the current language standard.
 #if BETTER_BRACES_ALLOW_BRACES
-#define INIT(...) better_braces::BETTER_BRACES_IDENTIFIER{__VA_ARGS__}
+#define INIT(...) BETTER_BRACES_INIT{__VA_ARGS__}
 #else
-#define INIT(...) better_braces::BETTER_BRACES_IDENTIFIER(__VA_ARGS__)
+#define INIT(...) BETTER_BRACES_INIT(__VA_ARGS__)
 #endif
 
 
@@ -107,9 +115,9 @@ namespace std _GLIBCXX_VISIBILITY(default)
 
 #define ASSERT_EQ(a, b) \
     do { \
-        if (a != b) \
+        if ((a) != (b)) \
         { \
-            std::cout << "Check failed at " __FILE__ ":" << __LINE__ << ": " #a " == " #b ", expanded to " << a << " == " << b << "\n"; \
+            std::cout << "Check failed at " __FILE__ ":" << __LINE__ << ": " #a " == " #b ", expanded to " << (a) << " == " << (b) << "\n"; \
             better_braces::detail::abort(); \
         } \
     } \
@@ -363,7 +371,7 @@ int main()
         ASSERT(vec1[0] == nullptr);
         ASSERT(vec1[1] != nullptr && *vec1[1] == 42);
 
-        std::vector<std::atomic_int> vec2 = INIT(1, 2, 3);
+        std::vector<std::atomic_int> vec2 = INIT(1, 2, 3).and_with(std::allocator<std::unique_ptr<int>>{});
         ASSERT_EQ(vec2.size(), 3);
         ASSERT_EQ(vec2[0].load(), 1);
         ASSERT_EQ(vec2[1].load(), 2);
@@ -415,7 +423,7 @@ int main()
                     ASSERT_EQ(*elem.second, 3.4f);
             }
 
-            std::map<int, std::atomic_int> map2 = INIT(
+            std::map<std::atomic_int, std::atomic_int> map2 = INIT(
                 std::make_pair(1, 2),
                 std::make_pair(3, 4)
             );
@@ -424,15 +432,23 @@ int main()
             ASSERT_EQ(map2.at(3).load(), 4);
 
             // Heterogeneous lists.
-            // For maps, the element type is never movable (because the first template argument of the pair is const),
-            // so we need the mandatory copy elision regardless of the map template arguments.
+            // For maps, the key is never movable (because the first template argument of the pair is const),
+            // so we need the mandatory copy elision if the key is not copyable (or if the value is not movable, of course).
+            std::map<int, std::unique_ptr<float>> map3 = INIT(
+                std::make_pair(short(1), std::make_unique<float>(2.3f)),
+                std::make_pair(2, std::make_unique<float>(3.4f))
+            );
+            ASSERT_EQ(map3.size(), 2);
+            ASSERT_EQ(*map3.at(1), 2.3f);
+            ASSERT_EQ(*map3.at(2), 3.4f);
+
             #if CONTAINERS_HAVE_MANDATORY_COPY_ELISION
-            std::map<std::unique_ptr<int>, std::unique_ptr<float>> map3 = INIT(
+            std::map<std::unique_ptr<int>, std::unique_ptr<float>> map4 = INIT(
                 std::make_pair(nullptr, std::make_unique<float>(2.3f)),
                 std::make_pair(std::make_unique<int>(2), std::make_unique<float>(3.4f))
             );
-            ASSERT_EQ(map3.size(), 2);
-            for (const auto &elem : map3)
+            ASSERT_EQ(map4.size(), 2);
+            for (const auto &elem : map4)
             {
                 if (!elem.first)
                 {
@@ -445,25 +461,29 @@ int main()
                 }
             }
 
-            std::map<int, std::atomic_int> map4 = INIT(
+            std::map<std::atomic_int, std::atomic_int> map5 = INIT(
                 std::make_pair(short(1), 2),
                 std::make_pair(3, 4)
             );
-            ASSERT_EQ(map4.size(), 2);
-            ASSERT_EQ(map4.at(1).load(), 2);
-            ASSERT_EQ(map4.at(3).load(), 4);
+            ASSERT_EQ(map5.size(), 2);
+            ASSERT_EQ(map5.at(1).load(), 2);
+            ASSERT_EQ(map5.at(3).load(), 4);
             #endif
         }
 
         { // From lists of lists.
-            // All of this needs mandatory copy elision, since constructing a non-movable non-range (`std::pair<const A, B>` in this case) from a list requires it.
+            // If the map key is not copyable, all of this requires mandatory copy elision, even if the list is homogeneous,
+            // since constructing a non-movable non-range (`std::pair<const A, B>` in this case) from a list
+            // from a list requires mandatory copy elision, because we need to return it from a function.
+
+            // Homogeneous lists.
             #if CONTAINERS_HAVE_MANDATORY_COPY_ELISION
-            std::map<std::unique_ptr<int>, std::unique_ptr<float>> map3 = INIT(
+            std::map<std::unique_ptr<int>, std::unique_ptr<float>> map1 = INIT(
                 INIT(std::make_unique<int>(1), std::make_unique<float>(2.3f)),
                 INIT(std::make_unique<int>(2), std::make_unique<float>(3.4f))
             );
-            ASSERT_EQ(map3.size(), 2);
-            for (const auto &elem : map3)
+            ASSERT_EQ(map1.size(), 2);
+            for (const auto &elem : map1)
             {
                 if (*elem.first == 1)
                     ASSERT_EQ(*elem.second, 2.3f);
@@ -471,20 +491,33 @@ int main()
                     ASSERT_EQ(*elem.second, 3.4f);
             }
 
-            std::map<int, std::atomic_int> map4 = INIT(
+            std::map<std::atomic_int, std::atomic_int> map2 = INIT(
                 INIT(1, 2),
                 INIT(3, 4)
             );
-            ASSERT_EQ(map4.size(), 2);
-            ASSERT_EQ(map4.at(1).load(), 2);
-            ASSERT_EQ(map4.at(3).load(), 4);
+            ASSERT_EQ(map2.size(), 2);
+            ASSERT_EQ(map2.at(1).load(), 2);
+            ASSERT_EQ(map2.at(3).load(), 4);
+            #endif
 
-            std::map<std::unique_ptr<int>, std::unique_ptr<float>> map5 = INIT(
+            // Heterogeneous lists.
+
+            // Here the map key type is copyable, so we don't need the mandatory copy elision.
+            std::map<int, std::unique_ptr<float>> map3 = INIT(
+                INIT(short(1), std::make_unique<float>(2.3f)),
+                INIT(2, std::make_unique<float>(3.4f))
+            );
+            ASSERT_EQ(map3.size(), 2);
+            ASSERT_EQ(*map3.at(1), 2.3f);
+            ASSERT_EQ(*map3.at(2), 3.4f);
+
+            #if CONTAINERS_HAVE_MANDATORY_COPY_ELISION
+            std::map<std::unique_ptr<int>, std::unique_ptr<float>> map4 = INIT(
                 INIT(nullptr, std::make_unique<float>(2.3f)),
                 INIT(std::make_unique<int>(2), std::make_unique<float>(3.4f))
             );
-            ASSERT_EQ(map5.size(), 2);
-            for (const auto &elem : map5)
+            ASSERT_EQ(map4.size(), 2);
+            for (const auto &elem : map4)
             {
                 if (!elem.first)
                 {
@@ -497,7 +530,7 @@ int main()
                 }
             }
 
-            std::map<int, std::atomic_int> map6 = INIT(
+            std::map<std::atomic_int, std::atomic_int> map6 = INIT(
                 INIT(short(1), 2),
                 INIT(3, 4)
             );
@@ -506,6 +539,21 @@ int main()
             ASSERT_EQ(map6.at(3).load(), 4);
             #endif
         }
+    }
+
+    { // Sets.
+        // The sets are special, because they have const elements.
+        std::set<int> set1 = INIT(1, 2, 3);
+        ASSERT_EQ(set1.size(), 3);
+        ASSERT(set1.count(1));
+        ASSERT(set1.count(2));
+        ASSERT(set1.count(3));
+
+        std::set<std::atomic_int> set2 = INIT(1, 2, 3);
+        ASSERT_EQ(set2.size(), 3);
+        ASSERT(set2.count(1));
+        ASSERT(set2.count(2));
+        ASSERT(set2.count(3));
     }
 
     { // Explicit and implicit construction.

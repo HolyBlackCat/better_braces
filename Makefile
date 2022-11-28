@@ -122,7 +122,7 @@ $(info )
 ifeq ($(LAST_VER),$(THIS_VER))
 ifneq ($(LAST_COMMIT),$(THIS_COMMIT))
 ifeq ($(and $(filter %-dirty,$(LAST_COMMIT)),$(filter-out %-dirty,$(THIS_COMMIT))),)
-$(error Go bump the version number! Or pass `CHECK_VERSION=0` to ignore this check)
+$(error Go bump the version number! Or pass `CHECK_VERSION=0` to ignore once. Or `rm .last_version` to ignore for this commit)
 endif
 endif
 endif
