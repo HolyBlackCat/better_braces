@@ -32,7 +32,7 @@
 
 // The version number: `major*10000 + minor*100 + patch`.
 #ifndef BETTER_BRACES_VERSION
-#define BETTER_BRACES_VERSION 900
+#define BETTER_BRACES_VERSION 901
 #endif
 
 // This file is included by this header automatically, if it exists.
@@ -624,11 +624,11 @@ namespace better_braces
                     std::allocator_traits<A>::template construct(alloc, target, static_cast<U &&>(source));
                 }
             };
-
-            // Our iterator's value type inherits from this.
-            struct elem_ref_base {};
         }
         #endif
+
+        // Our iterator's value type inherits from this.
+        struct elem_ref_base {};
 
         // Replaces `std::is_constructible`. The standard trait is buggy at least in MSVC v19.32.
         template <typename Void, typename T, typename ...P>
@@ -701,7 +701,7 @@ namespace better_braces
             template <typename T>
             class elem_ref
             #if BETTER_BRACES_ALLOCATOR_HACK
-            : detail::allocator_hack::elem_ref_base
+                : detail::elem_ref_base
             #endif
             {
                 friend BETTER_BRACES_IDENTIFIER;

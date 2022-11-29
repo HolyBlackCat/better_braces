@@ -1,6 +1,6 @@
-# better_braces
+# ~ better_braces ~
 
-**Initialize containers of non-copyable types, which otherwise don't support `std::initializer_list` constructors.**
+**List-initialize containers of non-copyable types, which otherwise don't support `std::initializer_list` constructors.**
 
 [![tests badge](https://github.com/HolyBlackCat/better_braces/actions/workflows/tests.yml/badge.svg?branch=master)](https://github.com/HolyBlackCat/better_braces/actions?query=branch%3Amaster)<br/>
 <kbd>[Try on gcc.godbolt.org][1]</kbd>
@@ -81,21 +81,34 @@ In the second example, `.push_back()` wouldn't compile at all, because the type 
   ```
 
 * **Using `init{...}` as a list of references:**
-  ```cpp
-  int x = 3, y = 2, z = 1;
-  std::ranges::sort(init{x, y, z});
-  std::cout << x << y << z << '\n'; // 123
-  ```
-  Or, pre-C++20:
-  ```cpp
-  auto list = init{x, y, z};
-  std::sort(list.begin(), list.end());
-  ```
+
   This requires all list elements to have exactly the same type.
+
+  * With standard algorithms:
+
+    ```cpp
+    int x = 3, y = 2, z = 1;
+    std::ranges::sort(init{x, y, z});
+    std::cout << x << y << z << '\n'; // 123
+    ```
+    Or, pre-C++20:
+    ```cpp
+    auto list = init{x, y, z};
+    std::sort(list.begin(), list.end());
+    ```
+
+  * With a `for` loop:
+    ```cpp
+    int x = 3, y = 2, z = 1;
+    for (int &elem : init{x, y, z})
+        elem++;
+    ```
+    This is equivalent to `for (int *elem : {&x, &y, &z}) (*elem)++;`, but with less annoying syntax.
+
 
 ## How do I use this library?
 
-The library is header-only (and includes as few standard library headers as possible).
+The library is header-only, with minimal standard library dependencies.
 
 Just clone the repository, add the `include` directory to the header search path, and include `<better_braces.hpp>`.
 
@@ -121,7 +134,7 @@ A longer explanation is provided below.
 
 ### The nature of `init`
 
-`init<P...>` is a class template. `P...` are deduced as the types of elements passed to `init{...}`, in a forward reference manner (deducing non-references for rvalue elements, and lvalue references for lvalue elements).
+`init<P...>` is a class template. `P...` are deduced as the types of the elements passed to `init{...}`, in a forward reference manner (deducing non-references for rvalue elements, and lvalue references for lvalue elements).
 
 `init` stores pointers to the elements. If at least one element is an rvalue (i.e. can become dangling), all operations become `&&`-qualified.
 
@@ -143,7 +156,7 @@ Non-ranges are initialized directly with the list elements, instead of the itera
 
 **Ranges are initialized using `T(begin, end)`. Non-ranges are initialized using `T{elements...}`.** You can pass extra arguments to a range constructor by feeding them to `.and_with(...)`. Non-ranges don't accept `.and_with(...)` at all (except with no arguments, to simplify generic code).
 
-The conversion `operator` from `init{...}` to a type can sometimes be **`explicit`**. For ranges, it happens when the type doesn't have a constructor accepting `std::initializer_list` (followed by the arguments passed to `.and_with()`, if any). For non-ranges, it happens when `void foo(Container); foo({...});` is ill-formed (most often this happens when the constructor is explicit).
+The conversion `operator` from `init{...}` to a type can sometimes be **`explicit`**. For ranges, it happens when the type doesn't have a constructor accepting `std::initializer_list` (followed by the arguments passed to `.and_with()`, if any). For non-ranges, it happens when `void foo(Container); foo({...});` is ill-formed (most often this happens when the constructor is `explicit`).
 
 ### More on range initialization
 
@@ -218,7 +231,7 @@ We support C++14 with some caveats:
 
   For maps, you can use `std::make_pair()` instead of the nested `init(...)` lists, but note that it stores the elements by value, adding extra moves. You can use pairs of references to avoid those.
 
-  The reason for this limitation is that a nested `init(...)` list tries to construct the container element, which involves returning it from a function by value, which, in absence of the mandatory copy elision, requires a move constructor.
+  The reason for this limitation is that a nested `init(...)` list tries to construct the element of the enclosing container, which involves returning it from `operator T` by value, which, in absence of the mandatory copy elision, requires a move constructor.
 
 ## Using better_braces in your own libraries
 
@@ -240,14 +253,13 @@ But in C++14, since we don't have CTAD, `init` and `better_braces::init` are ins
 
 Because of that:
 
-* Use `init(...)` instead of `init{...}`, since functions can't be called with braces. (Or rather, `better_braces::BETTER_BRACES_IDENTIFIER(...)`.)
+* Use `init(...)` instead of `init{...}`, since functions can't be called with braces. (Or rather, `BETTER_BRACES_INIT(...)`.)
 
   * Keep in mind that, as everywhere else in C++, the order of evaluation of parenthesized arguments is unspecified, while the braced elements are evaluated left-to-right.
 
-* If you need to refer to the type, spell it as `better_braces::type::init`. (Or rather, `better_braces::type::BETTER_BRACES_IDENTIFIER`.)
+* If you need to refer to the type, spell it as `better_braces::type::init`. (Or rather, `BETTER_BRACES_TYPE`.)
 
-* C++14 doesn't have `std::is_aggregate` (no kidding). We consider `std::array` to be the only aggregate, **but** this only matters if the type has a `::value_type` typedef. So if you want to initialize an aggregate that has this typedef, specialize `better_braces::details::is_aggregate` for it.
-
+* C++14 doesn't have `std::is_aggregate` (no kidding). We consider `std::array` to be the only aggregate, **but** this only matters if the type also has a `::value_type` typedef. So if you want to initialize an aggregate that has this typedef, specialize `better_braces::details::is_aggregate` for it.
 
 
   [1]: https://godbolt.org/#g:!((g:!((g:!((h:codeEditor,i:(filename:'1',fontScale:14,fontUsePx:'0',j:1,lang:c%2B%2B,selection:(endColumn:1,endLineNumber:21,positionColumn:1,positionLineNumber:21,selectionStartColumn:1,selectionStartLineNumber:21,startColumn:1,startLineNumber:21),source:'%23include+%3Chttps://raw.githubusercontent.com/HolyBlackCat/better_braces/master/include/better_braces.hpp%3E%0A%0A%23include+%3Catomic%3E%0A%23include+%3Ciostream%3E%0A%23include+%3Cmemory%3E%0A%23include+%3Cvector%3E%0A%0Aint+main()%0A%7B%0A++++//+std::vector%3Cstd::unique_ptr%3Cint%3E%3E+foo+%3D+%7Bnullptr,+std::make_unique%3Cint%3E(42)%7D%3B%0A++++std::vector%3Cstd::unique_ptr%3Cint%3E%3E+foo+%3D+init%7Bnullptr,+std::make_unique%3Cint%3E(42)%7D%3B%0A++++std::cout+%3C%3C+foo.at(0)+%3C%3C+!'%5Cn!'%3B%0A++++std::cout+%3C%3C+foo.at(1)+%3C%3C+%22+-%3E+%22+%3C%3C+*foo.at(1)+%3C%3C+!'%5Cn!'%3B%0A++++std::cout+%3C%3C+!'%5Cn!'%3B%0A++++%0A++++//+std::vector%3Cstd::atomic_int%3E+bar+%3D+%7B1,+2,+3%7D%3B%0A++++std::vector%3Cstd::atomic_int%3E+bar+%3D+init%7B1,+2,+3%7D%3B%0A++++for+(const+auto+%26elem+:+bar)%0A++++++++std::cout+%3C%3C+elem.load()+%3C%3C+!'%5Cn!'%3B%0A%7D%0A'),l:'5',n:'0',o:'C%2B%2B+source+%231',t:'0')),k:50.6226993728496,l:'4',n:'0',o:'',s:0,t:'0'),(g:!((g:!((h:compiler,i:(compiler:clang1500,deviceViewOpen:'1',filters:(b:'0',binary:'1',commentOnly:'0',demangle:'0',directives:'0',execute:'0',intel:'1',libraryCode:'1',trim:'0'),flagsViewOpen:'1',fontScale:14,fontUsePx:'0',j:1,lang:c%2B%2B,libs:!(),options:'-std%3Dc%2B%2B20+-Wall+-Wextra+-pedantic-errors+-g+-fsanitize%3Dundefined,address+-D_GLIBCXX_DEBUG+-Wno-pragma-once-outside-header',selection:(endColumn:1,endLineNumber:1,positionColumn:1,positionLineNumber:1,selectionStartColumn:1,selectionStartLineNumber:1,startColumn:1,startLineNumber:1),source:1),l:'5',n:'0',o:'+x86-64+clang+15.0.0+(Editor+%231)',t:'0')),header:(),k:31.394545063431934,l:'4',m:50,n:'0',o:'',s:0,t:'0'),(g:!((h:output,i:(compilerName:'x86-64+gcc+(trunk)',editorid:1,fontScale:14,fontUsePx:'0',j:1,wrap:'1'),l:'5',n:'0',o:'Output+of+x86-64+clang+15.0.0+(Compiler+%231)',t:'0')),header:(),l:'4',m:50,n:'0',o:'',s:0,t:'0')),k:48.95267217704424,l:'3',n:'0',o:'',t:'0')),l:'2',n:'0',o:'',t:'0')),version:4
