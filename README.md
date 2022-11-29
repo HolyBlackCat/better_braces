@@ -35,7 +35,7 @@ grep -E '^##+ ' README.md | sed -E -e 's/^## /* /g' -e 's/^### /  * /g' -e 's/^#
 
 ## The problem
 
-`std::initializer_list` stores `const` elements, so the elements can't be moved from it. This causes unnecessary copying, and disables `std::initializer_list` constructors for non-copyable element types.
+`std::initializer_list` stores `const` elements, so the elements can't be moved from it. This causes unnecessary copying, and compilation errors for non-copyable types.
 
 For example, this doesn't work, since `unique_ptr` is non-copyable:
 
