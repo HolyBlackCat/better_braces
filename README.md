@@ -1,6 +1,7 @@
 # ~ better_braces ~
 
-**List-initialize containers of non-copyable types, which otherwise don't support `std::initializer_list` constructors.**
+**List-initialize containers with proper move semantics,<br/>
+including containers of non-copyable elements, which otherwise don't support `std::initializer_list` constructors.**
 
 [![tests badge](https://github.com/HolyBlackCat/better_braces/actions/workflows/tests.yml/badge.svg?branch=master)](https://github.com/HolyBlackCat/better_braces/actions?query=branch%3Amaster)<br/>
 <kbd>[Try on gcc.godbolt.org][1]</kbd>
@@ -34,7 +35,7 @@ grep -E '^##+ ' README.md | sed -E -e 's/^## /* /g' -e 's/^### /  * /g' -e 's/^#
 
 ## The problem
 
-`std::initializer_list` stores `const` elements, so the elements can't be moved from it, so none of the constructors accepting `std::initializer_list` work with non-copyable types.
+`std::initializer_list` stores `const` elements, so the elements can't be moved from it. This causes unnecessary copying, and disables `std::initializer_list` constructors for non-copyable element types.
 
 For example, this doesn't work, since `unique_ptr` is non-copyable:
 
