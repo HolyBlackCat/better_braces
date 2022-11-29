@@ -62,9 +62,9 @@ std::vector<std::atomic_int> vec = init{1, 2, 3};
 ```
 This compiles and performs the initialization as you would expect.
 
-In the first example, one could also use `.reserve()`+`.push_back()`, so `init{...}` just provides a prettier syntax.
+In the first example, one could also use `.reserve()`+`.emplace_back()`, so `init{...}` just provides a prettier syntax.
 
-In the second example, `.push_back()` wouldn't compile at all, because the type is non-movable.<br/>
+In the second example, `.emplace_back()` wouldn't compile at all, because the type is non-movable.<br/>
 
 ### More examples
 
