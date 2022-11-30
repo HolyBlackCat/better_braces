@@ -32,7 +32,7 @@
 
 // The version number: `major*10000 + minor*100 + patch`.
 #ifndef BETTER_BRACES_VERSION
-#define BETTER_BRACES_VERSION 903
+#define BETTER_BRACES_VERSION 904
 #endif
 
 // This file is included by this header automatically, if it exists.
@@ -760,7 +760,8 @@ namespace better_braces
                 }
 
               public:
-                // Can't use C++20 iterator category auto-detection here, since both libstdc++ and libc++ incorrectly require `reference` to be an lvalue reference.
+                // Can't use C++20 iterator category auto-detection here, since an rvalue reference `reference` makes it think it's an input iterator.
+                // Yes, the detection logic is specified to not match the actual iterator requirements, this is LWG issue: https://cplusplus.github.io/LWG/issue3798
                 using iterator_category = std::random_access_iterator_tag;
                 using reference = std::conditional_t<is_homogeneous, homogeneous_type, const elem_ref<T> &>;
                 using value_type = std::remove_cv_t<std::remove_reference_t<reference>>;
