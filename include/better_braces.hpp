@@ -32,7 +32,7 @@
 
 // The version number: `major*10000 + minor*100 + patch`.
 #ifndef BETTER_BRACES_VERSION
-#define BETTER_BRACES_VERSION 902
+#define BETTER_BRACES_VERSION 903
 #endif
 
 // This file is included by this header automatically, if it exists.
@@ -699,10 +699,7 @@ namespace better_braces
 
             // Heterogeneous lists use this as the element type for the iterators.
             template <typename T>
-            class elem_ref
-            #if BETTER_BRACES_ALLOCATOR_HACK
-                : detail::elem_ref_base
-            #endif
+            class elem_ref : detail::elem_ref_base
             {
                 friend BETTER_BRACES_IDENTIFIER;
                 const tuple_t *target = nullptr;
