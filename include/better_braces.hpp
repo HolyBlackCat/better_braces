@@ -32,7 +32,7 @@
 
 // The version number: `major*10000 + minor*100 + patch`.
 #ifndef BETTER_BRACES_VERSION
-#define BETTER_BRACES_VERSION 901
+#define BETTER_BRACES_VERSION 902
 #endif
 
 // This file is included by this header automatically, if it exists.
@@ -45,8 +45,8 @@
 
 // CONTAINER REQUIREMENTS
 // All of those can be worked around by specializing `better_braces::custom::??` for your container.
-// * Must have a `::value_type` typedef with the element type ()
-// * Must have a constructor from two iterators.
+// * Must have a `::value_type` typedef with the element type.
+// * Must have a constructor from two iterators (possibly followed by other arguments, then you have to use `init{...}.and_with(extra_args...)`).
 
 namespace better_braces
 {

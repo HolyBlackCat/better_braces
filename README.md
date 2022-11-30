@@ -169,7 +169,7 @@ An `init{...}` list is **"homogeneous"** if all its elements have the same type,
 
 We call the sole element type of a homogeneous list the **"homogeneous type"**, it's always either an lvalue or rvalue reference.
 
-Homogeneous list iterators dereference to its homogeneous type. Heterogeneous list iterators deference to a (const reference to a) helper objects that has an `operator T`, where `T` is the `::value_type` of the container.
+Homogeneous list iterators dereference to its homogeneous type. Heterogeneous list iterators deference to a (const reference to a) helper objects that has an `operator T`, where `T` is the `::value_type` of the container. (The initial idea was to template the `operator T`, but I ran into some problems with MSVC.)
 
 ### `.begin()`/`.end()`
 
