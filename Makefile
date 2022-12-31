@@ -3,11 +3,8 @@
 
 # Optimization modes to test. Override this with a subset of modes if you want to.
 OPTIMIZE := O0_sanitized O0 Omax
-OPTIM_NAME_O0_sanitized := '-O0, ASAN+UBSAN'
 OPTIM_FLAGS_O0_sanitized := -O0 -g -fsanitize=address -fsanitize=undefined
-OPTIM_NAME_O0 := '-O0            '
 OPTIM_FLAGS_O0 := -O0
-OPTIM_NAME_Omax := '-O3            '
 OPTIM_FLAGS_Omax := -O3
 $(foreach x,$(OPTIMIZE),$(if $(OPTIM_FLAGS_$x),,$(error Unknown optimization level: $x)))
 
