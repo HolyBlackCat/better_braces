@@ -85,7 +85,7 @@ endif
 
 .PHONY: commands
 commands:
-	$(eval override cxx := $(lastword $(filter clang++%,$(COMPILER))))
+	$(eval override cxx := $(firstword $(filter clang++%,$(COMPILER))))
 	$(if $(cxx),,$(error Unable to guess the compiler))
 	$(eval override std := $(firstword $(filter-out latest,$(STANDARD))))
 	$(if $(std),,$(error Unable to guess the C++ standard version))
