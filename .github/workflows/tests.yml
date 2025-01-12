@@ -13,6 +13,7 @@ jobs:
         # Install latest compilers.
         sudo apt install -y g++-12
         # Prepare a GCC toolchain dir for Clang. Clang 12 is incompatible with libstdc++ 12, even though it tries to use it.
+        # `--gcc-install-dir` was added only in Clang 16, so we have to prepare our own directory and pass it to `--gcc-toolchain`.
         sudo mkdir -p gcc-toolchain-11/include/c++
         sudo ln -s /usr/include/c++/11 gcc-toolchain-11/include/c++/11
         sudo mkdir -p gcc-toolchain-11/lib/gcc/x86_64-unknown-linux-gnu
@@ -33,7 +34,8 @@ jobs:
     - name: List compilers
       run: make -pq | grep ^COMPILER
     - name: Run tests
-      run: make
+      # Clang 17 chokes on our code when using libstdc++ 13.
+      run: make CXXFLAGS_PER_COMPILER='clang++-17=--gcc-install-dir=/usr/lib/gcc/x86_64-linux-gnu/13'
   Tests-MSVC:
     runs-on: windows-latest
     steps:
