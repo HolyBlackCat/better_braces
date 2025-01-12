@@ -15,7 +15,7 @@ $(if $(COMPILER),,$(error Unable to detect compilers, set `COMPILER=??` to a spa
 
 # C++ standards to test. Override this with a subset of standards if you want to.
 # Only MSVC supports `latest`.
-STANDARD := latest 20 17 14
+STANDARD := latest 26 23 20 17 14
 
 # C++ standard libraries to test.
 STDLIB := libstdc++ libc++ msvc
