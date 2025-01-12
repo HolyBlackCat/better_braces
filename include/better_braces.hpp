@@ -32,7 +32,7 @@
 
 // The version number: `major*10000 + minor*100 + patch`.
 #ifndef BETTER_BRACES_VERSION
-#define BETTER_BRACES_VERSION 904
+#define BETTER_BRACES_VERSION 1000
 #endif
 
 // This file is included by this header automatically, if it exists.
@@ -223,6 +223,32 @@ namespace better_braces
 #endif
 #endif
 
+// Is the cast to/from `void *` constexpr?
+#ifndef BETTER_BRACES_HAVE_CONSTEXPR_VOID_PTR_CAST
+#if __cpp_constexpr >= 202306
+#define BETTER_BRACES_HAVE_CONSTEXPR_VOID_PTR_CAST 1
+#else
+#define BETTER_BRACES_HAVE_CONSTEXPR_VOID_PTR_CAST 0
+#endif
+#endif
+// `constexpr` if the `void *` cast itself is constexpr.
+#if BETTER_BRACES_HAVE_CONSTEXPR_VOID_PTR_CAST
+#define BETTER_BRACES_CONSTEXPR_VOID_PTR_CAST constexpr
+#else
+#define BETTER_BRACES_CONSTEXPR_VOID_PTR_CAST
+#endif
+
+// Should we use a simplified tuple implementation for heterogeneous lists?
+// This compiles faster, but isn't constexpr until C++26.
+// Enabled by default only if can be made constexpr.
+#ifndef BETTER_BRACES_USE_VOID_PTR_ARRAY_AS_TUPLE
+#if BETTER_BRACES_HAVE_CONSTEXPR_VOID_PTR_CAST
+#define BETTER_BRACES_USE_VOID_PTR_ARRAY_AS_TUPLE 1
+#else
+#define BETTER_BRACES_USE_VOID_PTR_ARRAY_AS_TUPLE 0
+#endif
+#endif
+
 // We want avoid including the entire `<iterator>` just to get the iterator tag.
 // And we can't use C++20 iterator category detection, because the detection logic is poorly specified to not consider iterators with `::reference` being an rvalue reference.
 // This is an LWG issue: https://cplusplus.github.io/LWG/issue3798
@@ -407,6 +433,7 @@ namespace better_braces
 
         // We use a custom tuple class to avoid including `<tuple>` and because we need some extra functionality.
 
+        #if !BETTER_BRACES_TUPLE_IMPL_V2
         // A helper class for our tuple implementation.
         template <typename ...P>
         struct tuple_impl_regular_low
@@ -540,6 +567,72 @@ namespace better_braces
             // Applies a custom function to all the elements at once. `params...` are prepended to the tuple elements.
             using base_t::apply; // decltype(auto) apply(F &&func, Q &&... params);
         };
+        #else // if BETTER_BRACES_TUPLE_IMPL_V2
+        // The tuple implementation. This one needs constexpr `void *` cast to be constexpr.
+        template <typename ...P>
+        class tuple_impl_regular
+        {
+          public:
+            // We want to keep this an aggregate, for simplicity.
+            const void *values[sizeof...(P)];
+
+          private:
+            // Applies a custom function to all the elements at once. `params...` are prepended to the tuple elements.
+            template <size_t I, typename R0, typename ...R, typename F, typename ...Q, std::enable_if_t<I == sizeof...(P)-1, nullptr_t> = nullptr>
+            constexpr decltype(auto) apply_low(F &&func, Q &&... params) const
+            {
+                return static_cast<F &&>(func)(static_cast<Q &&>(params)..., static_cast<R0 &&>(*static_cast<std::remove_reference_t<R0> *>(const_cast<void *>(values[I]))));
+            }
+            template <size_t I, typename R0, typename ...R, typename F, typename ...Q, std::enable_if_t<I != sizeof...(P)-1, nullptr_t> = nullptr>
+            constexpr decltype(auto) apply_low(F &&func, Q &&... params) const
+            {
+                return apply_low<I+1, R...>(static_cast<F &&>(func), static_cast<Q &&>(params)..., static_cast<R0 &&>(*static_cast<std::remove_reference_t<R0> *>(const_cast<void *>(values[I]))));
+            }
+
+          public:
+            // Applies a custom function to the `i`th element.
+            // `F` must have `::return_type` and `::func<T>(T &)`, where `T` receives the element type, and can be an rvalue reference.
+            template <typename F, typename ...Q, std::enable_if_t<dependent_value<F, sizeof...(P) != 0>::value, nullptr_t> = nullptr>
+            constexpr typename F::return_type apply_to_elem(size_t i, Q &&... params) const
+            {
+                constexpr typename F::return_type (*array[])(const void *value, Q &&... params) = {
+                    +[](const void *value, Q &&... params) -> typename F::return_type
+                    {
+                        return F::template func<P>(*static_cast<std::remove_reference_t<P> *>(const_cast<void *>(value)), static_cast<Q &&>(params)...);
+                    }...
+                };
+                return array[i](values[i], static_cast<Q &&>(params)...);
+            }
+            template <typename F, typename ...Q, std::enable_if_t<dependent_value<F, sizeof...(P) == 0>::value, nullptr_t> = nullptr>
+            constexpr typename F::return_type apply_to_elem(size_t, Q &&...) const
+            {
+                abort();
+            }
+
+            template <typename F, typename ...Q>
+            constexpr decltype(auto) apply(F &&func, Q &&... params) const
+            {
+                return apply_low<0, P...>(static_cast<F &&>(func), static_cast<Q &&>(params)...);
+            }
+        };
+
+        template <>
+        class tuple_impl_regular<>
+        {
+          public:
+            template <typename F, typename ...Q>
+            constexpr typename F::return_type apply_to_elem(size_t, Q &&...) const
+            {
+                abort();
+            }
+
+            template <typename F, typename ...Q>
+            constexpr decltype(auto) apply(F &&func, Q &&... params) const
+            {
+                return static_cast<F &&>(func)(static_cast<Q &&>(params)...);
+            }
+        };
+        #endif
 
         // A simple alternative array-based tuple implementation, for homogeneous non-empty tuples.
         template <typename T, size_t N>
