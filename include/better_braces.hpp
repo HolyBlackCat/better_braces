@@ -556,12 +556,12 @@ namespace better_braces
             }
 
             template <size_t I = 0, typename F, typename ...Q, std::enable_if_t<I == N-1, nullptr_t> = nullptr>
-            decltype(auto) apply(F &&func, Q &&... params) const
+            constexpr decltype(auto) apply(F &&func, Q &&... params) const
             {
                 return static_cast<F &&>(func)(static_cast<Q &&>(params)..., static_cast<T &&>(*values[I]));
             }
             template <size_t I = 0, typename F, typename ...Q, std::enable_if_t<I != N-1, nullptr_t> = nullptr>
-            decltype(auto) apply(F &&func, Q &&... params) const
+            constexpr decltype(auto) apply(F &&func, Q &&... params) const
             {
                 return apply<I+1>(static_cast<F &&>(func), static_cast<Q &&>(params)..., static_cast<T &&>(*values[I]));
             }
