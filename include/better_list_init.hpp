@@ -1,15 +1,15 @@
 #pragma once
 
-// ~ better_braces ~
+// ~ better_list_init ~
 // Provides a way to initialize containers of non-movable types, since `std::initializer_list` doesn't move anything.
 // Minimal usage example: `std::vector<T> foo = init{...};` instead of `= {...}`.
 // See the readme for more details.
 
-// The latest version is hosted at: https://github.com/HolyBlackCat/better_braces
+// The latest version is hosted at: https://github.com/HolyBlackCat/better_list_init
 
 // License: ZLIB
 
-// Copyright (c) 2022 Egor Mikhailov
+// Copyright (c) 2022-2024 Egor Mikhailov
 //
 // This software is provided 'as-is', without any express or implied
 // warranty. In no event will the authors be held liable for any damages
@@ -31,24 +31,24 @@
 #include <type_traits>
 
 // The version number: `major*10000 + minor*100 + patch`.
-#ifndef BETTER_BRACES_VERSION
-#define BETTER_BRACES_VERSION 1000
+#ifndef BETTERLISTINIT_VERSION
+#define BETTERLISTINIT_VERSION 10000
 #endif
 
 // This file is included by this header automatically, if it exists.
 // Put your customizations here.
 // You can redefine various macros defined below (in the config file, or elsewhere),
-// and specialize templates in `better_braces::custom` (also in the config file, or elsewhere).
-#ifndef BETTER_BRACES_CONFIG
-#define BETTER_BRACES_CONFIG "better_braces_config.hpp"
+// and specialize templates in `better_list_init::custom` (also in the config file, or elsewhere).
+#ifndef BETTERLISTINIT_CONFIG
+#define BETTERLISTINIT_CONFIG "better_list_init_config.hpp"
 #endif
 
 // CONTAINER REQUIREMENTS
-// All of those can be worked around by specializing `better_braces::custom::??` for your container.
+// All of those can be worked around by specializing `better_list_init::custom::??` for your container.
 // * Must have a `::value_type` typedef with the element type.
 // * Must have a constructor from two iterators (possibly followed by other arguments, then you have to use `init{...}.and_with(extra_args...)`).
 
-namespace better_braces
+namespace better_list_init
 {
     namespace detail
     {
@@ -174,78 +174,78 @@ namespace better_braces
 }
 
 // Include the user config, if it exists.
-#if __has_include(BETTER_BRACES_CONFIG)
-#include BETTER_BRACES_CONFIG
+#if __has_include(BETTERLISTINIT_CONFIG)
+#include BETTERLISTINIT_CONFIG
 #endif
 
-// Whether to add `init` in the global namespace as a shorthand for `better_braces::init{...}`.
-#ifndef BETTER_BRACES_SHORTHAND
-#define BETTER_BRACES_SHORTHAND 1
+// Whether to add `init` in the global namespace as a shorthand for `better_list_init::init{...}`.
+#ifndef BETTERLISTINIT_SHORTHAND
+#define BETTERLISTINIT_SHORTHAND 1
 #endif
 
 // Lets you replace the name `init` with something else.
-#ifndef BETTER_BRACES_IDENTIFIER
-#define BETTER_BRACES_IDENTIFIER init
+#ifndef BETTERLISTINIT_IDENTIFIER
+#define BETTERLISTINIT_IDENTIFIER init
 #endif
 
 // The C++ standard version to assume.
 // First, the raw date number.
-#ifndef BETTER_BRACES_CXX_STANDARD_DATE
+#ifndef BETTERLISTINIT_CXX_STANDARD_DATE
 #ifdef _MSC_VER
-#define BETTER_BRACES_CXX_STANDARD_DATE _MSVC_LANG // D:<
+#define BETTERLISTINIT_CXX_STANDARD_DATE _MSVC_LANG // D:<
 #else
-#define BETTER_BRACES_CXX_STANDARD_DATE __cplusplus
+#define BETTERLISTINIT_CXX_STANDARD_DATE __cplusplus
 #endif
 #endif
 // Then, the actual version number.
-#ifndef BETTER_BRACES_CXX_STANDARD
-#if BETTER_BRACES_CXX_STANDARD_DATE >= 202002
-#define BETTER_BRACES_CXX_STANDARD 20
-#elif BETTER_BRACES_CXX_STANDARD_DATE >= 201703
-#define BETTER_BRACES_CXX_STANDARD 17
-#elif BETTER_BRACES_CXX_STANDARD_DATE >= 201402
-#define BETTER_BRACES_CXX_STANDARD 14
-// #elif BETTER_BRACES_CXX_STANDARD_DATE >= 201103
-// #define BETTER_BRACES_CXX_STANDARD 11
+#ifndef BETTERLISTINIT_CXX_STANDARD
+#if BETTERLISTINIT_CXX_STANDARD_DATE >= 202002
+#define BETTERLISTINIT_CXX_STANDARD 20
+#elif BETTERLISTINIT_CXX_STANDARD_DATE >= 201703
+#define BETTERLISTINIT_CXX_STANDARD 17
+#elif BETTERLISTINIT_CXX_STANDARD_DATE >= 201402
+#define BETTERLISTINIT_CXX_STANDARD 14
+// #elif BETTERLISTINIT_CXX_STANDARD_DATE >= 201103
+// #define BETTERLISTINIT_CXX_STANDARD 11
 #else
-#error "better_braces requires C++14 or newer."
+#error "better_list_init requires C++14 or newer."
 #endif
 #endif
 
 // Whether to allow braces: `init{...}`. Parentheses are always allowed: `init(...)`.
 // Braces require CTAD to work.
 // Note that here and elsewhere in C++, elements in braces are evaluated left-to-right, while in parentheses the evaluation order is unspecified.
-#ifndef BETTER_BRACES_ALLOW_BRACES
-#if BETTER_BRACES_CXX_STANDARD >= 17
-#define BETTER_BRACES_ALLOW_BRACES 1
+#ifndef BETTERLISTINIT_ALLOW_BRACES
+#if BETTERLISTINIT_CXX_STANDARD >= 17
+#define BETTERLISTINIT_ALLOW_BRACES 1
 #else
-#define BETTER_BRACES_ALLOW_BRACES 0
+#define BETTERLISTINIT_ALLOW_BRACES 0
 #endif
 #endif
 
 // Is the cast to/from `void *` constexpr?
-#ifndef BETTER_BRACES_HAVE_CONSTEXPR_VOID_PTR_CAST
+#ifndef BETTERLISTINIT_HAVE_CONSTEXPR_VOID_PTR_CAST
 #if __cpp_constexpr >= 202306
-#define BETTER_BRACES_HAVE_CONSTEXPR_VOID_PTR_CAST 1
+#define BETTERLISTINIT_HAVE_CONSTEXPR_VOID_PTR_CAST 1
 #else
-#define BETTER_BRACES_HAVE_CONSTEXPR_VOID_PTR_CAST 0
+#define BETTERLISTINIT_HAVE_CONSTEXPR_VOID_PTR_CAST 0
 #endif
 #endif
 // `constexpr` if the `void *` cast itself is constexpr.
-#if BETTER_BRACES_HAVE_CONSTEXPR_VOID_PTR_CAST
-#define BETTER_BRACES_CONSTEXPR_VOID_PTR_CAST constexpr
+#if BETTERLISTINIT_HAVE_CONSTEXPR_VOID_PTR_CAST
+#define BETTERLISTINIT_CONSTEXPR_VOID_PTR_CAST constexpr
 #else
-#define BETTER_BRACES_CONSTEXPR_VOID_PTR_CAST
+#define BETTERLISTINIT_CONSTEXPR_VOID_PTR_CAST
 #endif
 
 // Should we use a simplified tuple implementation for heterogeneous lists?
 // This compiles faster, but isn't constexpr until C++26.
 // Enabled by default only if can be made constexpr.
-#ifndef BETTER_BRACES_USE_VOID_PTR_ARRAY_AS_TUPLE
-#if BETTER_BRACES_HAVE_CONSTEXPR_VOID_PTR_CAST
-#define BETTER_BRACES_USE_VOID_PTR_ARRAY_AS_TUPLE 1
+#ifndef BETTERLISTINIT_USE_VOID_PTR_ARRAY_AS_TUPLE
+#if BETTERLISTINIT_HAVE_CONSTEXPR_VOID_PTR_CAST
+#define BETTERLISTINIT_USE_VOID_PTR_ARRAY_AS_TUPLE 1
 #else
-#define BETTER_BRACES_USE_VOID_PTR_ARRAY_AS_TUPLE 0
+#define BETTERLISTINIT_USE_VOID_PTR_ARRAY_AS_TUPLE 0
 #endif
 #endif
 
@@ -254,37 +254,37 @@ namespace better_braces
 // This is an LWG issue: https://cplusplus.github.io/LWG/issue3798
 // If this is enabled, we try to forward-declare `std::random_access_iterator_tag` in a way suitable for the current standard library, falling back to including `<iterator>`.
 // If this is disabled, we just include `<iterator>`.
-#ifndef BETTER_BRACES_FORWARD_DECLARE_ITERATOR_TAG
-#define BETTER_BRACES_FORWARD_DECLARE_ITERATOR_TAG 1
+#ifndef BETTERLISTINIT_FORWARD_DECLARE_ITERATOR_TAG
+#define BETTERLISTINIT_FORWARD_DECLARE_ITERATOR_TAG 1
 #endif
 
 // How to stop the program when something bad happens.
 // This statement will be wrapped in 'diagostic push/pop' automatically.
-#ifndef BETTER_BRACES_ABORT
+#ifndef BETTERLISTINIT_ABORT
 #if defined(_MSC_VER) && defined(__clang__)
-#define BETTER_BRACES_ABORT _Pragma("clang diagnostic ignored \"-Winvalid-noreturn\"") __debugbreak();
+#define BETTERLISTINIT_ABORT _Pragma("clang diagnostic ignored \"-Winvalid-noreturn\"") __debugbreak();
 #elif defined(_MSC_VER)
-#define BETTER_BRACES_ABORT __debugbreak();
+#define BETTERLISTINIT_ABORT __debugbreak();
 #else
-#define BETTER_BRACES_ABORT __builtin_trap();
+#define BETTERLISTINIT_ABORT __builtin_trap();
 #endif
 #endif
 
 // `[[nodiscard]]`, if available.
-#ifndef BETTER_BRACES_NODISCARD
-#if BETTER_BRACES_CXX_STANDARD >= 17
-#define BETTER_BRACES_NODISCARD [[nodiscard]]
+#ifndef BETTERLISTINIT_NODISCARD
+#if BETTERLISTINIT_CXX_STANDARD >= 17
+#define BETTERLISTINIT_NODISCARD [[nodiscard]]
 #else
-#define BETTER_BRACES_NODISCARD
+#define BETTERLISTINIT_NODISCARD
 #endif
 #endif
 
 // Whether `std::is_aggregate` is available.
-#ifndef BETTER_BRACES_HAVE_IS_AGGREGATE
-#if BETTER_BRACES_CXX_STANDARD >= 17
-#define BETTER_BRACES_HAVE_IS_AGGREGATE 1
+#ifndef BETTERLISTINIT_HAVE_IS_AGGREGATE
+#if BETTERLISTINIT_CXX_STANDARD >= 17
+#define BETTERLISTINIT_HAVE_IS_AGGREGATE 1
 #else
-#define BETTER_BRACES_HAVE_IS_AGGREGATE 0
+#define BETTERLISTINIT_HAVE_IS_AGGREGATE 0
 #endif
 #endif
 
@@ -296,21 +296,21 @@ namespace better_braces
 // which doesn't respect allocator's `construct()`.
 // But you could use libstdc++ in C++14 mode to test the allocator hack on compilers other than MSVC.
 // By default, even if this is enabled, the hack is disabled at compile-time if we detect that your standard library is not bugged.
-// Set `BETTER_BRACES_ALLOCATOR_HACK` to 2 to enable it unconditionally, for testing.
-#ifndef BETTER_BRACES_ALLOCATOR_HACK
-#if defined(_MSC_VER) && _MSC_VER < 1934 && BETTER_BRACES_CXX_STANDARD >= 20
-#define BETTER_BRACES_ALLOCATOR_HACK 1
+// Set `BETTERLISTINIT_ALLOCATOR_HACK` to 2 to enable it unconditionally, for testing.
+#ifndef BETTERLISTINIT_ALLOCATOR_HACK
+#if defined(_MSC_VER) && _MSC_VER < 1934 && BETTERLISTINIT_CXX_STANDARD >= 20
+#define BETTERLISTINIT_ALLOCATOR_HACK 1
 #else
-#define BETTER_BRACES_ALLOCATOR_HACK 0
+#define BETTERLISTINIT_ALLOCATOR_HACK 0
 #endif
 #endif
 
 // When the allocator hack is used, we need a 'may alias' attribute to `reinterpret_cast` safely.
-#ifndef BETTER_BRACES_ALLOCATOR_HACK_MAY_ALIAS
+#ifndef BETTERLISTINIT_ALLOCATOR_HACK_MAY_ALIAS
 #ifdef _MSC_VER
-#define BETTER_BRACES_ALLOCATOR_HACK_MAY_ALIAS // I've heard MSVC is fairly conservative with aliasing optimizations?
+#define BETTERLISTINIT_ALLOCATOR_HACK_MAY_ALIAS // I've heard MSVC is fairly conservative with aliasing optimizations?
 #else
-#define BETTER_BRACES_ALLOCATOR_HACK_MAY_ALIAS __attribute__((__may_alias__))
+#define BETTERLISTINIT_ALLOCATOR_HACK_MAY_ALIAS __attribute__((__may_alias__))
 #endif
 #endif
 
@@ -318,12 +318,12 @@ namespace better_braces
 // Normally this is not useful, because:
 // A. C++20 `std::allocator` doesn't define `.construct()`, and
 // B. If you have a lame allocator that does define it without a good reason, you can specialize a few of our templates for it.
-#ifndef BETTER_BRACES_ALLOCATOR_HACK_IGNORE_EXISTING_CONSTRUCT_FUNC
-#define BETTER_BRACES_ALLOCATOR_HACK_IGNORE_EXISTING_CONSTRUCT_FUNC 0
+#ifndef BETTERLISTINIT_ALLOCATOR_HACK_IGNORE_EXISTING_CONSTRUCT_FUNC
+#define BETTERLISTINIT_ALLOCATOR_HACK_IGNORE_EXISTING_CONSTRUCT_FUNC 0
 #endif
 
 
-#if !BETTER_BRACES_FORWARD_DECLARE_ITERATOR_TAG
+#if !BETTERLISTINIT_FORWARD_DECLARE_ITERATOR_TAG
 #include <iterator>
 #else
 #if defined(__GLIBCXX__)
@@ -346,19 +346,19 @@ _STD_END
 #endif
 #endif
 
-#if BETTER_BRACES_ALLOCATOR_HACK
+#if BETTERLISTINIT_ALLOCATOR_HACK
 #include <memory> // For `std::allocator_traits`.
 #endif
 
-#if !BETTER_BRACES_HAVE_IS_AGGREGATE
+#if !BETTERLISTINIT_HAVE_IS_AGGREGATE
 #include <array> // Need this to specialize `detail::default_is_range`, see below for details.
 #endif
 
-namespace better_braces
+namespace better_list_init
 {
     namespace detail
     {
-        #if BETTER_BRACES_HAVE_IS_AGGREGATE
+        #if BETTERLISTINIT_HAVE_IS_AGGREGATE
         template <typename T>
         struct is_aggregate<T, std::enable_if_t<std::is_aggregate<T>::value>> : std::true_type {};
         #else
@@ -371,13 +371,13 @@ namespace better_braces
 
         struct empty {};
 
-        // In the definition of `BETTER_BRACES_ABORT`, we promise to push/pop diagnostics around it.
+        // In the definition of `BETTERLISTINIT_ABORT`, we promise to push/pop diagnostics around it.
         #ifdef _MSC_VER
         #pragma warning(push)
         #else
         #pragma GCC diagnostic push
         #endif
-        [[noreturn]] inline void abort() {BETTER_BRACES_ABORT}
+        [[noreturn]] inline void abort() {BETTERLISTINIT_ABORT}
         #ifdef _MSC_VER
         #pragma warning(pop)
         #else
@@ -433,7 +433,7 @@ namespace better_braces
 
         // We use a custom tuple class to avoid including `<tuple>` and because we need some extra functionality.
 
-        #if !BETTER_BRACES_TUPLE_IMPL_V2
+        #if !BETTERLISTINIT_TUPLE_IMPL_V2
         // A helper class for our tuple implementation.
         template <typename ...P>
         struct tuple_impl_regular_low
@@ -567,7 +567,7 @@ namespace better_braces
             // Applies a custom function to all the elements at once. `params...` are prepended to the tuple elements.
             using base_t::apply; // decltype(auto) apply(F &&func, Q &&... params);
         };
-        #else // if BETTER_BRACES_TUPLE_IMPL_V2
+        #else // if BETTERLISTINIT_TUPLE_IMPL_V2
         // The tuple implementation. This one needs constexpr `void *` cast to be constexpr.
         template <typename ...P>
         class tuple_impl_regular
@@ -703,7 +703,7 @@ namespace better_braces
             }
         };
 
-        #if BETTER_BRACES_ALLOCATOR_HACK
+        #if BETTERLISTINIT_ALLOCATOR_HACK
         namespace allocator_hack
         {
             // Constructs a `T` at `target` using allocator `A`, passing a forwarding reference to `U` as an argument.
@@ -765,12 +765,12 @@ namespace better_braces
         using enable_if_valid_conversion_target = std::enable_if_t<!std::is_const<T>::value, int>;
     }
 
-    // `better_braces::type::init` is the type of our list class.
+    // `better_list_init::type::init` is the type of our list class.
     // I don't want to put it into `detail`, because it can be renamed by the user, and I don't want naming conflicts.
     namespace type
     {
         template <typename ...P>
-        class BETTER_BRACES_NODISCARD BETTER_BRACES_IDENTIFIER
+        class BETTERLISTINIT_NODISCARD BETTERLISTINIT_IDENTIFIER
             : detail::maybe_copyable<detail::all_of<std::is_lvalue_reference<P>...>::value>
         {
           public:
@@ -794,7 +794,7 @@ namespace better_braces
             template <typename T>
             class elem_ref : detail::elem_ref_base
             {
-                friend BETTER_BRACES_IDENTIFIER;
+                friend BETTERLISTINIT_IDENTIFIER;
                 const tuple_t *target = nullptr;
                 detail::size_t index = 0;
 
@@ -823,7 +823,7 @@ namespace better_braces
                     return target->template apply_to_elem<detail::construct_from_elem<T>>(index);
                 }
 
-                #if BETTER_BRACES_ALLOCATOR_HACK
+                #if BETTERLISTINIT_ALLOCATOR_HACK
                 // Constructs an object at the specified address, using an allocator.
                 template <typename Alloc>
                 constexpr void _allocator_hack_construct_at(Alloc &alloc, T *location) const noexcept(can_nothrow_initialize_elem<T>::value)
@@ -838,7 +838,7 @@ namespace better_braces
             template <typename T>
             class elem_iter
             {
-                friend BETTER_BRACES_IDENTIFIER;
+                friend BETTERLISTINIT_IDENTIFIER;
                 const std::conditional_t<is_homogeneous, std::remove_reference_t<homogeneous_type> *, elem_ref<T>> *ptr = nullptr;
 
                 template <typename Void = void, std::enable_if_t<detail::dependent_value<Void, !is_homogeneous>::value, detail::nullptr_t> = nullptr>
@@ -932,9 +932,9 @@ namespace better_braces
             // See the public `_helper`-less versions below.
             // Note that we have to use a specialization here. Directly inheriting from `integral_constant` isn't enough, because it's not SFINAE-friendly (with respect to the `element_type<T>::type`).
             template <typename Void, typename T, typename ...Q> struct can_initialize_range_helper : std::false_type {};
-            template <typename T, typename ...Q> struct can_initialize_range_helper        <std::enable_if_t<custom::is_range<T>::value && detail::constructible_from_iters        <T, elem_iter<typename custom::element_type<T>::type>, BETTER_BRACES_IDENTIFIER, Q...>::value && can_initialize_elem        <typename custom::element_type<T>::type>::value>, T, Q...> : std::true_type {};
+            template <typename T, typename ...Q> struct can_initialize_range_helper        <std::enable_if_t<custom::is_range<T>::value && detail::constructible_from_iters        <T, elem_iter<typename custom::element_type<T>::type>, BETTERLISTINIT_IDENTIFIER, Q...>::value && can_initialize_elem        <typename custom::element_type<T>::type>::value>, T, Q...> : std::true_type {};
             template <typename Void, typename T, typename ...Q> struct can_nothrow_initialize_range_helper : std::false_type {};
-            template <typename T, typename ...Q> struct can_nothrow_initialize_range_helper<std::enable_if_t<custom::is_range<T>::value && detail::nothrow_constructible_from_iters<T, elem_iter<typename custom::element_type<T>::type>, BETTER_BRACES_IDENTIFIER, Q...>::value && can_nothrow_initialize_elem<typename custom::element_type<T>::type>::value>, T, Q...> : std::true_type {};
+            template <typename T, typename ...Q> struct can_nothrow_initialize_range_helper<std::enable_if_t<custom::is_range<T>::value && detail::nothrow_constructible_from_iters<T, elem_iter<typename custom::element_type<T>::type>, BETTERLISTINIT_IDENTIFIER, Q...>::value && can_nothrow_initialize_elem<typename custom::element_type<T>::type>::value>, T, Q...> : std::true_type {};
 
           public:
             // Whether this list can be used to initialize a range type `T`, with extra constructor arguments `Q...`.
@@ -944,25 +944,25 @@ namespace better_braces
             // NOTE: We check `!is_range<T>` here to avoid the uniform init fiasco, at least for our lists.
             // NOTE: We need short-circuiting here, otherwise libstdc++ 10 in C++14 mode fails with a hard error in `nonrange_brace_constructible`.
             // NOTE: `sizeof...(Q) == 0` is an arbitrary restriction, hopefully forcing a more clear usage.
-            template <typename T, typename ...Q> struct can_initialize_nonrange         : detail::all_of<detail::negate<custom::is_range<T>>, std::integral_constant<bool, sizeof...(Q) == 0>, detail::nonrange_brace_constructible        <T, BETTER_BRACES_IDENTIFIER, P..., Q...>> {};
-            template <typename T, typename ...Q> struct can_nothrow_initialize_nonrange : detail::all_of<detail::negate<custom::is_range<T>>, std::integral_constant<bool, sizeof...(Q) == 0>, detail::nothrow_nonrange_brace_constructible<T, BETTER_BRACES_IDENTIFIER, P..., Q...>> {};
+            template <typename T, typename ...Q> struct can_initialize_nonrange         : detail::all_of<detail::negate<custom::is_range<T>>, std::integral_constant<bool, sizeof...(Q) == 0>, detail::nonrange_brace_constructible        <T, BETTERLISTINIT_IDENTIFIER, P..., Q...>> {};
+            template <typename T, typename ...Q> struct can_nothrow_initialize_nonrange : detail::all_of<detail::negate<custom::is_range<T>>, std::integral_constant<bool, sizeof...(Q) == 0>, detail::nothrow_nonrange_brace_constructible<T, BETTERLISTINIT_IDENTIFIER, P..., Q...>> {};
 
           private:
             template <typename T>
             struct convert_functor
             {
-                const BETTER_BRACES_IDENTIFIER *list = nullptr;
+                const BETTERLISTINIT_IDENTIFIER *list = nullptr;
 
                 // Convert to an empty range.
                 template <typename ...Q, std::enable_if_t<can_initialize_range<T, Q...>::value && sizeof...(P) == 0, detail::nullptr_t> = nullptr>
-                BETTER_BRACES_NODISCARD constexpr T operator()(Q &&... extra_args) const
+                BETTERLISTINIT_NODISCARD constexpr T operator()(Q &&... extra_args) const
                 {
                     using elem_type = typename custom::element_type<T>::type;
-                    return custom::construct_range<void, T, elem_iter<elem_type>, BETTER_BRACES_IDENTIFIER, Q...>{}(elem_iter<elem_type>{}, elem_iter<elem_type>{}, static_cast<Q &&>(extra_args)...);
+                    return custom::construct_range<void, T, elem_iter<elem_type>, BETTERLISTINIT_IDENTIFIER, Q...>{}(elem_iter<elem_type>{}, elem_iter<elem_type>{}, static_cast<Q &&>(extra_args)...);
                 }
                 // Convert to a non-empty heterogeneous range.
                 template <typename ...Q, std::enable_if_t<can_initialize_range<T, Q...>::value && sizeof...(P) != 0 && !is_homogeneous, detail::nullptr_t> = nullptr>
-                BETTER_BRACES_NODISCARD constexpr T operator()(Q &&... extra_args) const
+                BETTERLISTINIT_NODISCARD constexpr T operator()(Q &&... extra_args) const
                 {
                     using elem_type = typename custom::element_type<T>::type;
 
@@ -979,11 +979,11 @@ namespace better_braces
                     begin.ptr = refs.elems;
                     end.ptr = refs.elems + sizeof...(P);
 
-                    return custom::construct_range<void, T, elem_iter<elem_type>, BETTER_BRACES_IDENTIFIER, Q...>{}(begin, end, static_cast<Q &&>(extra_args)...);
+                    return custom::construct_range<void, T, elem_iter<elem_type>, BETTERLISTINIT_IDENTIFIER, Q...>{}(begin, end, static_cast<Q &&>(extra_args)...);
                 }
                 // Convert to a non-empty homogeneous range.
                 template <typename ...Q, std::enable_if_t<can_initialize_range<T, Q...>::value && sizeof...(P) != 0 && is_homogeneous, detail::nullptr_t> = nullptr>
-                BETTER_BRACES_NODISCARD constexpr T operator()(Q &&... extra_args) const
+                BETTERLISTINIT_NODISCARD constexpr T operator()(Q &&... extra_args) const
                 {
                     using elem_type = typename custom::element_type<T>::type;
 
@@ -991,14 +991,14 @@ namespace better_braces
                     begin.ptr = list->elems.values;
                     end.ptr = list->elems.values + sizeof...(P);
 
-                    return custom::construct_range<void, T, elem_iter<elem_type>, BETTER_BRACES_IDENTIFIER, Q...>{}(begin, end, static_cast<Q &&>(extra_args)...);
+                    return custom::construct_range<void, T, elem_iter<elem_type>, BETTERLISTINIT_IDENTIFIER, Q...>{}(begin, end, static_cast<Q &&>(extra_args)...);
                 }
                 // Convert to a non-range.
                 template <typename ...Q, std::enable_if_t<can_initialize_nonrange<T, Q...>::value, detail::nullptr_t> = nullptr>
-                BETTER_BRACES_NODISCARD constexpr T operator()(Q &&... extra_args) const
+                BETTERLISTINIT_NODISCARD constexpr T operator()(Q &&... extra_args) const
                 {
                     detail::tuple<Q &&...> extra_tuple{&extra_args...};
-                    using func_t = custom::construct_nonrange<void, T, BETTER_BRACES_IDENTIFIER, P..., Q...>;
+                    using func_t = custom::construct_nonrange<void, T, BETTERLISTINIT_IDENTIFIER, P..., Q...>;
                     return extra_tuple.apply(detail::apply_functor<func_t, const tuple_t &>{func_t{}, list->elems});
                 }
             };
@@ -1023,7 +1023,7 @@ namespace better_braces
 
             // The constructor from a braced (or parenthesized) list.
             // No `[[nodiscard]]` because GCC 9 complains. Having it on the entire class should be enough.
-            constexpr BETTER_BRACES_IDENTIFIER(P &&... params) noexcept
+            constexpr BETTERLISTINIT_IDENTIFIER(P &&... params) noexcept
                 : elems{&params...}
             {}
 
@@ -1039,25 +1039,25 @@ namespace better_braces
 
             // Implicit, lvalue-only lists.
             template <typename T, detail::enable_if_valid_conversion_target<T> = 0, std::enable_if_t<can_initialize<T>::value && allow_implicit_init<T>::value && is_lvalue_only, detail::nullptr_t> = nullptr>
-            BETTER_BRACES_NODISCARD constexpr operator T() const & noexcept(can_nothrow_initialize<T>::value)
+            BETTERLISTINIT_NODISCARD constexpr operator T() const & noexcept(can_nothrow_initialize<T>::value)
             {
                 return convert_functor<T>{this}();
             }
             // Explicit, lvalue-only lists.
             template <typename T, detail::enable_if_valid_conversion_target<T> = 0, std::enable_if_t<can_initialize<T>::value && !allow_implicit_init<T>::value && is_lvalue_only, detail::nullptr_t> = nullptr>
-            BETTER_BRACES_NODISCARD constexpr explicit operator T() const & noexcept(can_nothrow_initialize<T>::value)
+            BETTERLISTINIT_NODISCARD constexpr explicit operator T() const & noexcept(can_nothrow_initialize<T>::value)
             {
                 return convert_functor<T>{this}();
             }
             // Implicit, non-lvalue-only lists.
             template <typename T, detail::enable_if_valid_conversion_target<T> = 0, std::enable_if_t<can_initialize<T>::value && allow_implicit_init<T>::value && !is_lvalue_only, detail::nullptr_t> = nullptr>
-            BETTER_BRACES_NODISCARD constexpr operator T() const && noexcept(can_nothrow_initialize<T>::value)
+            BETTERLISTINIT_NODISCARD constexpr operator T() const && noexcept(can_nothrow_initialize<T>::value)
             {
                 return convert_functor<T>{this}();
             }
             // Explicit, non-lvalue-only lists.
             template <typename T, detail::enable_if_valid_conversion_target<T> = 0, std::enable_if_t<can_initialize<T>::value && !allow_implicit_init<T>::value && !is_lvalue_only, detail::nullptr_t> = nullptr>
-            BETTER_BRACES_NODISCARD constexpr explicit operator T() const && noexcept(can_nothrow_initialize<T>::value)
+            BETTERLISTINIT_NODISCARD constexpr explicit operator T() const && noexcept(can_nothrow_initialize<T>::value)
             {
                 return convert_functor<T>{this}();
             }
@@ -1067,36 +1067,36 @@ namespace better_braces
             template <typename ...Q>
             class conversion_helper
             {
-                friend BETTER_BRACES_IDENTIFIER;
-                const BETTER_BRACES_IDENTIFIER *list = nullptr;
+                friend BETTERLISTINIT_IDENTIFIER;
+                const BETTERLISTINIT_IDENTIFIER *list = nullptr;
                 detail::tuple<Q &&...> extra_params;
 
-                constexpr conversion_helper(const BETTER_BRACES_IDENTIFIER *list, detail::tuple<Q &&...> extra_params)
+                constexpr conversion_helper(const BETTERLISTINIT_IDENTIFIER *list, detail::tuple<Q &&...> extra_params)
                     : list(list), extra_params(extra_params)
                 {}
 
               public:
                 // Implicit, lvalue-only lists.
                 template <typename T, detail::enable_if_valid_conversion_target<T> = 0, std::enable_if_t<can_initialize<T, Q...>::value && allow_implicit_init<T, Q...>::value && is_lvalue_only, detail::nullptr_t> = nullptr>
-                BETTER_BRACES_NODISCARD constexpr operator T() const & noexcept(can_nothrow_initialize<T, Q...>::value)
+                BETTERLISTINIT_NODISCARD constexpr operator T() const & noexcept(can_nothrow_initialize<T, Q...>::value)
                 {
                     return extra_params.apply(convert_functor<T>{list});
                 }
                 // Explicit, lvalue-only lists.
                 template <typename T, detail::enable_if_valid_conversion_target<T> = 0, std::enable_if_t<can_initialize<T, Q...>::value && !allow_implicit_init<T, Q...>::value && is_lvalue_only, detail::nullptr_t> = nullptr>
-                BETTER_BRACES_NODISCARD constexpr explicit operator T() const & noexcept(can_nothrow_initialize<T, Q...>::value)
+                BETTERLISTINIT_NODISCARD constexpr explicit operator T() const & noexcept(can_nothrow_initialize<T, Q...>::value)
                 {
                     return extra_params.apply(convert_functor<T>{list});
                 }
                 // Implicit, non-lvalue-only lists.
                 template <typename T, detail::enable_if_valid_conversion_target<T> = 0, std::enable_if_t<can_initialize<T, Q...>::value && allow_implicit_init<T, Q...>::value && !is_lvalue_only, detail::nullptr_t> = nullptr>
-                BETTER_BRACES_NODISCARD constexpr operator T() const && noexcept(can_nothrow_initialize<T, Q...>::value)
+                BETTERLISTINIT_NODISCARD constexpr operator T() const && noexcept(can_nothrow_initialize<T, Q...>::value)
                 {
                     return extra_params.apply(convert_functor<T>{list});
                 }
                 // Explicit, non-lvalue-only lists.
                 template <typename T, detail::enable_if_valid_conversion_target<T> = 0, std::enable_if_t<can_initialize<T, Q...>::value && !allow_implicit_init<T, Q...>::value && !is_lvalue_only, detail::nullptr_t> = nullptr>
-                BETTER_BRACES_NODISCARD constexpr explicit operator T() const && noexcept(can_nothrow_initialize<T, Q...>::value)
+                BETTERLISTINIT_NODISCARD constexpr explicit operator T() const && noexcept(can_nothrow_initialize<T, Q...>::value)
                 {
                     return extra_params.apply(convert_functor<T>{list});
                 }
@@ -1106,7 +1106,7 @@ namespace better_braces
             // Returns a helper object with conversion operators.
             // `extra_params...` are the extra parameters passed to the type's constructor, after the pair of iterators.
             template <typename ...Q>
-            BETTER_BRACES_NODISCARD constexpr conversion_helper<Q &&...> and_with(Q &&... extra_params) const && noexcept
+            BETTERLISTINIT_NODISCARD constexpr conversion_helper<Q &&...> and_with(Q &&... extra_params) const && noexcept
             {
                 return {this, {&extra_params...}};
             }
@@ -1145,18 +1145,18 @@ namespace better_braces
             }
         };
 
-        #if BETTER_BRACES_ALLOW_BRACES
+        #if BETTERLISTINIT_ALLOW_BRACES
         template <typename ...P>
-        BETTER_BRACES_IDENTIFIER(P &&...) -> BETTER_BRACES_IDENTIFIER<P...>;
+        BETTERLISTINIT_IDENTIFIER(P &&...) -> BETTERLISTINIT_IDENTIFIER<P...>;
         #endif
     }
 
-    #if BETTER_BRACES_ALLOW_BRACES
-    using type::BETTER_BRACES_IDENTIFIER;
+    #if BETTERLISTINIT_ALLOW_BRACES
+    using type::BETTERLISTINIT_IDENTIFIER;
     #else
     // A helper function to construct the list class.
     template <typename ...P>
-    BETTER_BRACES_NODISCARD constexpr type::BETTER_BRACES_IDENTIFIER<P...> BETTER_BRACES_IDENTIFIER(P &&... params) noexcept
+    BETTERLISTINIT_NODISCARD constexpr type::BETTERLISTINIT_IDENTIFIER<P...> BETTERLISTINIT_IDENTIFIER(P &&... params) noexcept
     {
         // Note, not doing `return T(...);`. There's difference in C++14, when there's no mandatory copy elision.
         return {static_cast<P &&>(params)...};
@@ -1165,20 +1165,20 @@ namespace better_braces
 }
 
 // The shorthand in the global namespace.
-#if BETTER_BRACES_SHORTHAND
-using better_braces::BETTER_BRACES_IDENTIFIER;
+#if BETTERLISTINIT_SHORTHAND
+using better_list_init::BETTERLISTINIT_IDENTIFIER;
 #endif
 
-// The stable ways to interact with the library, unaffected by `BETTER_BRACES_IDENTIFIER`.
+// The stable ways to interact with the library, unaffected by `BETTERLISTINIT_IDENTIFIER`.
 // Those are intended for dependent library implementers.
-#define BETTER_BRACES_INIT ::better_braces::BETTER_BRACES_IDENTIFIER
-#define BETTER_BRACES_TYPE ::better_braces::type::BETTER_BRACES_IDENTIFIER
+#define BETTERLISTINIT_INIT ::better_list_init::BETTERLISTINIT_IDENTIFIER
+#define BETTERLISTINIT_TYPE ::better_list_init::type::BETTERLISTINIT_IDENTIFIER
 
 
 // The allocator hack.
 // See the macro definition for details.
-#if BETTER_BRACES_ALLOCATOR_HACK
-namespace better_braces
+#if BETTERLISTINIT_ALLOCATOR_HACK
+namespace better_list_init
 {
     namespace detail
     {
@@ -1186,8 +1186,8 @@ namespace better_braces
         {
             // Check if we're affected by the bug.
             // This also returns true if we don't have the mandatory copy elision,
-            // but running the hack pre-C++20 is only useful for testing purposes (see the comments on `BETTER_BRACES_ALLOCATOR_HACK`).
-            #if BETTER_BRACES_ALLOCATOR_HACK > 1 || !HAVE_MANDATORY_COPY_ELISION
+            // but running the hack pre-C++20 is only useful for testing purposes (see the comments on `BETTERLISTINIT_ALLOCATOR_HACK`).
+            #if BETTERLISTINIT_ALLOCATOR_HACK > 1 || !HAVE_MANDATORY_COPY_ELISION
             struct enabled : std::true_type {};
             #else
             struct construct_at_checker
@@ -1293,7 +1293,7 @@ namespace better_braces
             // We separate the implementation into `default_allocator_defines_construct_func` to not mess with user specializations.
             template <typename Void, typename T, typename ...P>
             struct default_allocator_defines_construct_func : std::false_type {};
-            #if !BETTER_BRACES_ALLOCATOR_HACK_IGNORE_EXISTING_CONSTRUCT_FUNC
+            #if !BETTERLISTINIT_ALLOCATOR_HACK_IGNORE_EXISTING_CONSTRUCT_FUNC
             template <typename T, typename ...P>
             struct default_allocator_defines_construct_func<decltype(void(declval<T>().construct(declval<P>()...))), T, P...> : std::true_type {};
             #endif
@@ -1384,9 +1384,9 @@ namespace better_braces
             {
                 // Note that we intentionally `reinterpret_cast` (which requires `may_alias` and all that),
                 // rather than memcpy-ing into the proper type. That's because the container might remember its own address.
-                struct BETTER_BRACES_ALLOCATOR_HACK_MAY_ALIAS alias_from {fixed_container value;};
+                struct BETTERLISTINIT_ALLOCATOR_HACK_MAY_ALIAS alias_from {fixed_container value;};
                 alias_from ret{custom::construct_range<void, fixed_container, Iter, List, P...>{}(static_cast<Iter &&>(begin), static_cast<Iter &&>(end), static_cast<P &&>(params)...)};
-                struct BETTER_BRACES_ALLOCATOR_HACK_MAY_ALIAS alias_to {T value;};
+                struct BETTERLISTINIT_ALLOCATOR_HACK_MAY_ALIAS alias_to {T value;};
                 static_assert(sizeof(alias_from) == sizeof(alias_to) && alignof(alias_from) == alignof(alias_to), "Internal error: Our custom allocator has a wrong size or alignment.");
                 return reinterpret_cast<alias_to &&>(ret).value;
             }
