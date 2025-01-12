@@ -3,14 +3,14 @@ name: Tests
 on: [push, pull_request]
 
 jobs:
-  Tests:
+  Tests-Ubuntu2204:
     runs-on: ubuntu-22.04
     steps:
     - name: Checkout
       uses: actions/checkout@v3
     - name: Install packages
       run: |
-        # Install latest GCC.
+        # Install latest compilers.
         sudo apt install -y g++-12
         # Prepare a GCC toolchain dir for Clang. Clang 12 is incompatible with libstdc++ 12, even though it tries to use it.
         sudo mkdir -p gcc-toolchain-11/include/c++
@@ -21,6 +21,19 @@ jobs:
       run: make -pq | grep ^COMPILER
     - name: Run tests
       run: make CXXFLAGS_PER_COMPILER='clang++-12=--gcc-toolchain=gcc-toolchain-11'
+  Tests-Ubuntu2404:
+    runs-on: ubuntu-24.04
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v3
+    - name: Install packages
+      run: |
+        # Install latest compilers.
+        sudo apt install -y g++-14
+    - name: List compilers
+      run: make -pq | grep ^COMPILER
+    - name: Run tests
+      run: make
   Tests-MSVC:
     runs-on: windows-latest
     steps:
